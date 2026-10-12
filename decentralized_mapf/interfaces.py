@@ -15,7 +15,7 @@ class Message:
     """One robot's position, goal, intended next cells, and sending timestep.
 
     Each message has its own next_cells list. Sender is a stable robot ID.
-    This is the payload; choosing its recipients belongs to the routing layer.
+    The runner sets recipient on each transmission; compose() can leave it None.
     """
 
     sender: int
@@ -23,6 +23,7 @@ class Message:
     goal: tuple[int, int]
     next_cells: list[tuple[int, int]] = field(default_factory=list)
     sent_at: int = 0
+    recipient: int | None = None
 
 
 @dataclass
@@ -86,6 +87,20 @@ class Planner:
     A concrete planner uses its observation, inbox, and goal. It must support an
     empty inbox and must not branch on which topology produced that inbox.
     """
+
+    def reset(self) -> None:
+        """Clear episode-specific state; override if the planner keeps caches."""
+        pass
+
+    def observe(self, agent_id: int, observation, position: tuple[int, int],
+                goal: tuple[int, int]) -> None:
+        """Update this robot's local state before compose(), without taking action.
+
+        position and goal use shared map coordinates; observation stays in
+        POGEMA's original frame. Only this robot's state is supplied here.
+        Override to refresh positions and intended paths used by compose().
+        """
+        pass
 
     def act(self,
             agent_id: int,

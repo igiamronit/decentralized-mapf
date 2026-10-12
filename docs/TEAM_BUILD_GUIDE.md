@@ -109,6 +109,7 @@ class Message:
     goal: tuple[int, int]
     next_cells: list[tuple[int, int]] = field(default_factory=list)
     sent_at: int = 0          # timestep sent; E2 needs this
+    recipient: int | None = None  # runner sets this on each per-edge transmission
 
 
 # ------------------------------------------- C5: one row of the run trace
@@ -163,6 +164,16 @@ class Planner:
     know or care why the inbox is full or empty. This is why the
     experiment is valid: any performance change is due to INFORMATION."""
 
+    def reset(self) -> None:
+        """Clear episode-specific state; override if the planner keeps caches."""
+        pass
+
+    def observe(self, agent_id: int, observation, position: tuple[int, int],
+                goal: tuple[int, int]) -> None:
+        """Refresh this robot's local state before compose(); do not take action.
+        position/goal are map-relative; observation stays start-relative."""
+        pass
+
     def act(self,
             agent_id: int,
             observation,                 # POGEMA POMAPF dict
@@ -178,42 +189,34 @@ class Planner:
 
 ### The simulation loop (Ronit owns this)
 
+Use the implementation in `decentralized_mapf/runner.py`, rather than copying
+an episode loop into each module:
+
 ```python
-def run_episode(env, comm: CommunicationModel, channel: Channel,
-                planner: Planner, metrics, max_steps: int) -> dict:
-    obs, info = env.reset()
-    channel.reset()
-    inboxes = {i: [] for i in range(n_agents)}
+from decentralized_mapf import run_episode
 
-    for t in range(max_steps):
-        positions = list(env.unwrapped.grid.positions_xy)
-
-        edges  = comm.get_edges(positions)                    # C2 / C8
-        stats  = comm.graph_stats(edges)                      # C8
-
-        outbox = [planner.compose(i, t) for i in range(n_agents)]
-        in_flight = [m for i, nbrs in edges.items()
-                       for _ in nbrs for m in [outbox[i]]]    # see note
-        arrived = channel.deliver(in_flight, t)               # C3 / E1-E4
-
-        inboxes = {i: [] for i in range(n_agents)}
-        for sender, nbrs in edges.items():
-            for r in nbrs:
-                for m in arrived:
-                    if m.sender == sender:
-                        inboxes[r].append(m)
-
-        actions = [planner.act(i, obs[i], inboxes[i], goals[i])
-                   for i in range(n_agents)]
-
-        obs, reward, terminated, truncated, info = env.step(actions)
-        metrics.record(t, positions, stats, arrived, inboxes)  # C5
-
-        if all(terminated) or all(truncated):
-            break
-
-    return metrics.summary()
+result = run_episode(env, comm, channel, planner, metrics, max_steps=256)
 ```
+
+The environment must be seeded POMAPF with `on_target='finish'`. The runner resets
+the environment and channel, calls `planner.reset()`, then for each decision step:
+reads map-relative positions; calls `observe()` for all active robots; composes,
+routes and delivers messages; records the current state and deliveries; asks
+for actions; and steps the environment. It also records the final state with
+empty deliveries, so K steps produce K+1 records. Use a fresh recorder per run.
+
+**Integration additions:** existing `act`, `compose`, `deliver`, and `record`
+signatures are unchanged. `Message.recipient` is an optional field, as allowed
+by the message contract. `Planner.reset` and `Planner.observe` are additive hooks
+with no-op defaults. Implement `observe` to refresh each robot's own position and
+intended path before its broadcast; an attempted move may have been blocked.
+Do not use other robots' private state when planning. Keep observations in
+their original POGEMA frame and use the supplied own position for shared messages.
+
+Finished robots retain stable IDs and final positions in the trace but are
+excluded from the communication graph and inbox delivery. Graph statistics
+therefore describe active robots. Exclude the terminal record when aggregating
+decision-step statistics, and exclude hidden finished robots from safety checks.
 
 *Note on `metrics.record`:* it takes `arrived` and `inboxes`, not a message
 count. A count cannot tell you message age (needed for the E2 freshness spec) or
@@ -222,10 +225,10 @@ who a robot actually heard from (needed for the epistemic deadlock split in
 `record`. **Get this into the frozen block on day one** — adding it later is a
 signature change, which rule 2 forbids.
 
-*Note:* the `in_flight` construction above is deliberately simple — one
-`Message` object per (sender, receiver) pair so the channel can drop them
-independently. Clean this up however you like, but keep the property that
-**each edge carries its own droppable message**, or E1 cannot work.
+*Routing:* **each edge carries its own droppable message**, with an independent
+payload snapshot and explicit `recipient`. Channels preserve this address even
+when delaying delivery. Route arrivals by `recipient`, never by matching a sender
+against the current graph: that duplicates broadcasts and misroutes stale messages.
 
 ---
 

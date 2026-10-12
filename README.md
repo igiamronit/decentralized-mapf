@@ -10,13 +10,17 @@ centralized comparison baseline.
 
 ## Current status
 
-This repository currently contains the project proposal, specification, team
-build guide, a modular POGEMA environment verifier, shared module interfaces,
-global/no-communication models, a perfect channel, and demonstrations.
-Environment verification is complete; see
-[the recorded results](docs/ENVIRONMENT_CHECK_RESULTS.md). Shared interfaces match
-the build guide. The episode runner, range/k-nearest communication models, the integrated planner,
-monitoring suite, oracle integration, and experiment harness remain to be built.
+Ronit's environment verification, shared interfaces, global/no-communication
+models, perfect channel, and episode runner are implemented. See
+[environment verification results](docs/ENVIRONMENT_CHECK_RESULTS.md).
+
+The team's planner, metrics/monitors, LaCAM3 integration, experiment harness,
+and range/k-nearest models remain to be integrated. The oracle/global/none
+comparison awaits those dependencies; loss/delay extensions follow core validation.
+
+For context, read [the team build guide](docs/TEAM_BUILD_GUIDE.md) for assignments
+and contracts, and [the project specification](docs/PROJECT_SPEC.md) for research
+requirements. This README covers the current implementation and how to use it.
 
 ## Layout
 
@@ -25,9 +29,11 @@ decentralized_mapf/
   interfaces.py              Shared message, trace, communication, channel, and planner contracts
   communication.py           Global/no-communication models and reusable graph statistics
   channels.py                Perfect channel; inherits the base pass-through behavior
+  runner.py                  Pluggable POGEMA episode loop and per-recipient routing
   __init__.py                Public imports for project modules
 tests/
   test_communication.py       Communication links and directed-graph statistics checks
+  test_runner.py              Real POGEMA integration with test-only planners and channels
 docs/
   TEAM_BUILD_GUIDE.md          Team assignments, frozen interfaces, implementation guide
   PROJECT_SPEC.md              Research question, experiment plan, references
@@ -77,17 +83,11 @@ their own copies. Run Python from the repository root:
 from decentralized_mapf import Message, StepRecord, CommunicationModel, Channel, Planner
 ```
 
-The definitions live in `decentralized_mapf/interfaces.py` and match section 3 of
-the team build guide. `Message` and `StepRecord` define data formats.
-`CommunicationModel` and `Planner` declare methods that concrete implementations
-will override; calling their unimplemented methods raises `NotImplementedError`.
-The base `Channel` already passes messages through unchanged, as specified by
-the guide. Implementations can be added without duplicating these contracts.
-
-Shared coordinates use map-relative `(row, column)` values without border padding.
-POGEMA observation coordinates are relative to each robot's start and must be
-converted before being used in a shared message. Communication links are directed:
-`{0: [1], 1: []}` means robot 0 can send to robot 1, with no reverse link.
+`interfaces.py` contains the shared data formats and base classes. Concrete
+models and planners inherit from them; the base channel is already pass-through.
+Coordinate conventions, directed links, and integration contracts are documented
+in [the guide's interface section](docs/TEAM_BUILD_GUIDE.md#3-frozen-interfaces--do-not-change-after-everyone-starts)
+and the code docstrings.
 
 ## Communication models
 
@@ -103,44 +103,48 @@ stats = comm.graph_stats(edges)
 # {'mean_degree': 2.0, 'n_components': 1, 'is_connected': True}
 ```
 
-Robot IDs are the indices in `positions`. Every robot appears as a graph key,
-including isolated robots; neither model adds self-links. No communication
-returns `{0: [], 1: [], 2: []}` and leaves local observation settings independent.
-These models select potential links; they do not deliver messages or move robots.
+These models select potential links. Future models can reuse `graph_stats` from
+`decentralized_mapf.communication`. Observation remains independent of communication.
 
-Future models can reuse `graph_stats` from `decentralized_mapf.communication`.
-Mean degree counts outgoing links; components and connectivity use the undirected
-view, including isolated robots. An empty graph has zero components and is not
-connected. A single isolated robot is connected.
+## Perfect channel
 
-Run the communication tests from the repository root:
+`PerfectChannel` in `channels.py` inherits the base channel's immediate, unchanged
+delivery. Future imperfect channels use the same `deliver()` and `reset()` interface.
+The runner creates independent per-recipient transmissions; channels must preserve
+the recipient and sending timestamp.
+
+## Episode runner
+
+Pass teammate implementations into one function; the runner contains no planner
+algorithm, monitor, plotting code, or experiment configuration:
+
+```python
+from decentralized_mapf import GlobalCommunication, PerfectChannel, run_episode
+
+# env, planner, and metrics are created by the calling experiment code.
+result = run_episode(env, GlobalCommunication(), PerfectChannel(),
+                     planner, metrics, max_steps=256)
+```
+
+Supply a seeded POMAPF environment with `on_target='finish'`, a planner inheriting
+`Planner`, and a fresh recorder exposing `record()` and `summary()`. Planner
+`reset()`/`observe()` hooks support episode initialization and fresh broadcasts.
+The runner records initial through final states and returns the recorder's summary.
+See the guide and `runner.py` for callback order, trace semantics, and finished-robot
+handling. The calling experiment code owns configuration and environment cleanup.
+
+## Validation
+
+From the repository root with the environment activated:
 
 ```powershell
 python -m unittest discover -s tests -v
 ```
 
-## Perfect channel
-
-The communication model selects potential links; the channel determines which
-supplied transmissions arrive. `PerfectChannel` delivers everything immediately:
-
-```python
-from decentralized_mapf import Message, PerfectChannel
-
-channel = PerfectChannel()
-channel.reset()  # Call at the start of each episode.
-outgoing = [Message(sender=0, position=(0, 0), goal=(5, 5), sent_at=0)]
-arrived = channel.deliver(outgoing, t=0)
-```
-
-It inherits the existing `Channel` implementation, preserving the same list,
-message objects, order, duplicates, payloads, and `sent_at` values. It has no
-queue or random state, so `reset()` is a no-op. A message supplied at timestep
-`t` arrives in that call; the channel does not rewrite an older sending time.
-Future loss/delay channels will implement the same interface.
-
-The episode runner (the next step) will connect graph edges, per-recipient
-transmissions, channel delivery, and robot inboxes.
+The last code validation passed all 18 tests, covering graph statistics and real
+POGEMA integration, including routing, drops/delays, reset, and stopping behavior.
+Fake planners and imperfect channels exist only in tests. Robot-coordination
+performance remains unvalidated until the real team modules are integrated.
 
 ## Run the existing scripts
 
@@ -165,7 +169,10 @@ automatically; the preserved figures in `docs/figures/` are not overwritten.
 
 ## Working agreements
 
-- Start with [the team build guide](docs/TEAM_BUILD_GUIDE.md).
+- Read [the team build guide](docs/TEAM_BUILD_GUIDE.md),
+  [project specification](docs/PROJECT_SPEC.md), and [agent instructions](AGENTS.md).
+- Keep this README current with a concise implementation handoff; put detailed
+  contracts in the guide and implementation assumptions in code docstrings.
 - Complete the core before extensions and preserve the frozen module interfaces.
 - Seed experiments, compare matched instances, and save raw results and traces
   before aggregation. Evaluate formal-methods monitors offline.

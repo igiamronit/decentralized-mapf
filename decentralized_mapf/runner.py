@@ -1,0 +1,86 @@
+"""One episode loop; planning, delivery, and offline metrics remain pluggable."""
+
+from copy import deepcopy
+
+from .interfaces import Channel, CommunicationModel, Planner
+
+
+def _active_edges(comm, positions, active):
+    """Keep stable robot IDs while excluding finished robots from the graph."""
+    return {
+        sender: [receiver for receiver in receivers if active[receiver]]
+        for sender, receivers in comm.get_edges(positions).items()
+        if active[sender]
+    }
+
+
+def run_episode(env, comm: CommunicationModel, channel: Channel,
+                planner: Planner, metrics, max_steps: int) -> dict:
+    """Run a seeded POGEMA POMAPF episode with on_target='finish'.
+
+    metrics supplies record(t, positions, graph_stats, arrived, inboxes) and
+    summary(); use a fresh recorder per episode. Records include the initial
+    state and final state, so K environment steps produce K+1 records. The final
+    record has no transmissions or actions. Specifications run offline.
+
+    Planner.reset() clears episode state; observe() receives each active robot's
+    current observation and own map-relative position/goal before any compose().
+    The runner never constructs a planner, changes sensing settings, or closes
+    the caller's environment. Channel implementations must preserve recipient.
+    """
+    if not isinstance(max_steps, int) or max_steps < 0:
+        raise ValueError("max_steps must be a nonnegative integer")
+    config = env.unwrapped.grid_config
+    if config.observation_type != "POMAPF" or config.on_target != "finish":
+        raise ValueError("The runner requires observation_type='POMAPF', on_target='finish'")
+    if config.seed is None:
+        raise ValueError("Set the environment's seed before running an episode")
+
+    observations, infos = env.reset(seed=config.seed)
+    channel.reset()
+    planner.reset()
+    goals = [tuple(p) for p in env.unwrapped.get_targets_xy(ignore_borders=True)]
+    wait = [tuple(move) for move in config.MOVES].index((0, 0))
+    finished = False
+
+    for t in range(max_steps + 1):
+        positions = [tuple(p) for p in env.unwrapped.get_agents_xy(ignore_borders=True)]
+        active = [info["is_active"] for info in infos]
+        edges = _active_edges(comm, positions, active)
+        stats = comm.graph_stats(edges)
+        inboxes = {i: [] for i in range(len(positions))}
+
+        if t == max_steps or finished or not any(active):
+            metrics.record(t, positions, stats, [], inboxes)
+            break
+
+        for i, is_active in enumerate(active):
+            if is_active:
+                planner.observe(i, observations[i], positions[i], goals[i])
+        outbox = {i: planner.compose(i, t) for i in edges}
+        in_flight = []
+        for sender, receivers in edges.items():
+            if outbox[sender].sender != sender:
+                raise ValueError("compose() returned a message with the wrong sender")
+            for receiver in receivers:
+                message = deepcopy(outbox[sender])
+                message.recipient = receiver
+                in_flight.append(message)
+
+        arrived = []
+        for message in channel.deliver(in_flight, t):
+            if message.recipient is None or message.recipient not in inboxes:
+                raise ValueError("Channel returned a message without a valid recipient")
+            if active[message.recipient]:
+                inboxes[message.recipient].append(message)
+                arrived.append(message)
+
+        metrics.record(t, positions, stats, arrived, inboxes)
+        actions = [
+            planner.act(i, observations[i], inboxes[i], goals[i]) if active[i] else wait
+            for i in range(len(positions))
+        ]
+        observations, _, terminated, truncated, infos = env.step(actions)
+        finished = all(done or timed_out for done, timed_out in zip(terminated, truncated))
+
+    return metrics.summary()

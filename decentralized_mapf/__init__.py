@@ -3,8 +3,9 @@
 from .interfaces import Channel, CommunicationModel, Message, Planner, StepRecord
 from .communication import GlobalCommunication, NoCommunication
 from .channels import PerfectChannel
+from .runner import run_episode
 
 __all__ = [
     "Message", "StepRecord", "CommunicationModel", "Channel", "Planner",
-    "GlobalCommunication", "NoCommunication", "PerfectChannel",
+    "GlobalCommunication", "NoCommunication", "PerfectChannel", "run_episode",
 ]
