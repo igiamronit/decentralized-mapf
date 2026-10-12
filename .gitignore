@@ -1,0 +1,38 @@
+# Local Python environments
+/mapf-env/
+/.venv/
+/venv/
+/env/
+
+# Python caches and build artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+.ipynb_checkpoints/
+
+# Generated animations, experiment results, and temporary files
+/outputs/
+/tmp/
+RONIT_TEMP.md
+
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+Desktop.ini

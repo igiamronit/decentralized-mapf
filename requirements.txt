@@ -1,0 +1,4 @@
+# Match the POGEMA revision used by the existing local environment.
+pogema @ git+https://github.com/Cognitive-AI-Systems/pogema.git@2e27a16af86fe47dfa62ab2f685a659ed5dc9910
+numpy==2.5.3
+matplotlib==3.11.2
