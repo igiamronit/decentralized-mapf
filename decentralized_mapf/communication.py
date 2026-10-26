@@ -94,3 +94,35 @@ class RangeCommunication(CommunicationModel):
 
     def graph_stats(self, edges: dict[int, list[int]]) -> dict:
         return graph_stats(edges)
+
+
+class KNNCommunication(CommunicationModel):
+    """Each robot sends to its k nearest robots by Manhattan distance."""
+
+    def __init__(self, k: int):
+        if isinstance(k, bool) or not isinstance(k, int) or k < 0:
+            raise ValueError("k must be a nonnegative integer")
+        self.k = k
+
+    def get_edges(
+        self, positions: list[tuple[int, int]]
+    ) -> dict[int, list[int]]:
+        return {
+            sender: [
+                receiver
+                for _, receiver in sorted(
+                    (
+                        manhattan(
+                            positions[sender], positions[receiver]
+                        ),
+                        receiver,
+                    )
+                    for receiver in range(len(positions))
+                    if receiver != sender
+                )[:self.k]
+            ]
+            for sender in range(len(positions))
+        }
+
+    def graph_stats(self, edges: dict[int, list[int]]) -> dict:
+        return graph_stats(edges)
