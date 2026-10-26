@@ -60,4 +60,37 @@ class NoCommunication(CommunicationModel):
 
     def graph_stats(self, edges: dict[int, list[int]]) -> dict:
         return graph_stats(edges)
-        
+
+def manhattan(a: tuple[int, int], b: tuple[int, int]) -> int:
+    """Calculate Manhattan distance between two grid positions."""
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+
+class RangeCommunication(CommunicationModel):
+    """Allow communication between robots within Manhattan distance r."""
+
+    def __init__(self, r: float):
+        if (
+            isinstance(r, bool)
+            or not isinstance(r, (int, float))
+            or not r >= 0
+        ):
+            raise ValueError("r must be a nonnegative number")
+        self.r = r
+
+    def get_edges(
+        self, positions: list[tuple[int, int]]
+    ) -> dict[int, list[int]]:
+        return {
+            sender: [
+                receiver
+                for receiver in range(len(positions))
+                if receiver != sender
+                and manhattan(positions[sender], positions[receiver])
+                <= self.r
+            ]
+            for sender in range(len(positions))
+        }
+
+    def graph_stats(self, edges: dict[int, list[int]]) -> dict:
+        return graph_stats(edges)
