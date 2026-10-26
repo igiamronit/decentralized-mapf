@@ -106,6 +106,13 @@ stats = comm.graph_stats(edges)
 These models select potential links. Future models can reuse `graph_stats` from
 `decentralized_mapf.communication`. Observation remains independent of communication.
 
+
+### Communication Topologies
+
+- **Range communication:** Robots communicate with other robots within a specified Manhattan distance `r`.
+- **k-nearest-neighbour (k-NN) communication:** Each robot communicates with up to `k` nearest robots, ranked by Manhattan distance. Ties are resolved by robot ID.
+
+
 ## Perfect channel
 
 `PerfectChannel` in `channels.py` inherits the base channel's immediate, unchanged
