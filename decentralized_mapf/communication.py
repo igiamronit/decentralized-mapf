@@ -60,3 +60,4 @@ class NoCommunication(CommunicationModel):
 
     def graph_stats(self, edges: dict[int, list[int]]) -> dict:
         return graph_stats(edges)
+        
