@@ -113,7 +113,7 @@ class CommunicationModel:
         Must be deterministic given positions. Randomness belongs in FailureModel."""
 
     def graph_stats(self, edges) -> dict:
-        """mean_degree, n_components, is_connected, diameter (if connected)"""
+        """mean_degree, n_components, is_connected (undirected view for connectivity)"""
 ```
 
 Required modes:
@@ -122,11 +122,19 @@ Required modes:
 |---|---|---|
 | `global` | 🟢 | Everyone hears everyone. **Control condition.** |
 | `none` | 🟢 | No communication at all. **Lower bound.** |
-| `range_r` | 🟢 | Euclidean or Manhattan distance ≤ r |
-| `knn_k` | 🟢 | k nearest agents (note: asymmetric — A may hear B without B hearing A) |
+| `range_r` | 🟢 | Manhattan distance ≤ r (the implemented distance convention) |
+| `knn_k` | 🟢 | k nearest agents by Manhattan distance, ties by ID (links may be asymmetric) |
 | `ring` / `grid` | 🟡 | Fixed topology by agent index, ignores position |
 | `line_of_sight` | 🟡 | Range-based, but obstacles block messages |
 | `budget_b` | 🟡 | Each agent may send at most b messages per step; needs a selection rule |
+
+**Implementation mapping:** `global`, `none`, `range_r`, and `knn_k` correspond
+to `GlobalCommunication()`, `NoCommunication()`, `RangeCommunication(r=...)`,
+and `KNNCommunication(k=...)`, exported by `decentralized_mapf`. These are research
+mode labels, not an implemented configuration factory. The frozen API is in
+`TEAM_BUILD_GUIDE.md` §3; diameter from the earlier architecture sketch is outside
+that API. See §6/C8 of the guide for topology behavior, pending integration work,
+and the matched-mean-degree comparison required before sweeps.
 
 **Design note:** `graph_stats` is not decoration. Reporting mean degree and connectivity alongside performance is what converts a description ("performance drops at range 3") into an explanation ("performance drops when the communication graph fragments into more than ~4 components"). This is the graph-theory content of the project.
 

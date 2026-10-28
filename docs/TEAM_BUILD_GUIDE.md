@@ -774,36 +774,49 @@ same hue, same error bars. Two panels, not two figures.
 
 ### C8 — Range & k-NN topologies + graph stats (Maanya)
 
+**Implementation available:** `RangeCommunication` and `KNNCommunication` live
+in `decentralized_mapf/communication.py` and are exported from the package. Use
+these implementations rather than copying the earlier topology pseudocode:
+
 ```python
-class RangeComm(CommunicationModel):
-    def __init__(self, r): self.r = r
+from decentralized_mapf import RangeCommunication, KNNCommunication
 
-    def get_edges(self, positions):
-        edges = {i: [] for i in range(len(positions))}
-        for i, j in itertools.combinations(range(len(positions)), 2):
-            d = abs(positions[i][0]-positions[j][0]) + \
-                abs(positions[i][1]-positions[j][1])     # Manhattan
-            if d <= self.r:
-                edges[i].append(j)
-                edges[j].append(i)                       # symmetric
-        return edges
-
-class KNNComm(CommunicationModel):
-    def __init__(self, k): self.k = k
-
-    def get_edges(self, positions):
-        edges = {}
-        for i in range(len(positions)):
-            others = sorted((dist(positions[i], positions[j]), j)
-                            for j in range(len(positions)) if j != i)
-            edges[i] = [j for _, j in others[:self.k]]
-        return edges                     # ASYMMETRIC — that is correct
+comm = RangeCommunication(r=3)  # Or KNNCommunication(k=2).
+edges = comm.get_edges(positions)
+stats = comm.graph_stats(edges)
 ```
+
+`positions[i]` identifies robot i. Every robot is a key, including isolated ones;
+there are no self-links. Both models are deterministic and use Manhattan distance.
+Range accepts nonnegative numeric `r` (including `float("inf")` for global range),
+includes the distance boundary, and produces symmetric links. k-NN accepts a
+nonnegative integer `k`, selects at most the other available robots, breaks equal
+distances by robot ID, and can produce asymmetric links. `k=0` gives no links.
+
+Both models reuse the existing `graph_stats` helper: `mean_degree` is mean outgoing
+degree; `n_components` and `is_connected` describe the undirected view, including
+isolated keys. No frozen method signatures or additional dependencies were added.
+`tests/test_topologies.py` covers the topology rules and parameter boundaries;
+run the full test suite using the README's validation command.
+
+**Integration follow-up before k-NN sweeps:** the existing runner selects neighbours
+using all stored positions, then filters finished robots out of the graph. For
+k-NN this can leave fewer than k active neighbours even when others are available.
+For example, with positions `[(0, 0), (0, 1), (0, 10)]`, robot 1 finished, and k=1,
+the current runner yields `{0: [], 2: []}` instead of connecting active robots
+0 and 2. Neighbour selection should consider active robots while preserving their
+original IDs. That implementation and a regression test remain pending; this
+handoff documents the limitation without changing the runner or topology code.
 
 **Matched mean degree.** To claim "structure matters, not just quantity", the
 k-NN and range conditions must be compared at equal mean degree. Measure it:
 run a few episodes per setting, record `mean_degree`, then pick the (r, k) pairs
 that line up. Do this before the main sweep.
+
+The topology implementations alone do not complete the range/performance curves,
+matched-degree comparison, robustness plots, or message-content extension. Those
+still depend on the planner, recorder/monitors, and experiment harness. Keep
+generated traces/results under `outputs/` and complete core validation first.
 
 ### E1 — Packet loss (Ronit)
 

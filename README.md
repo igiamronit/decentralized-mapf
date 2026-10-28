@@ -10,13 +10,14 @@ centralized comparison baseline.
 
 ## Current status
 
-Ronit's environment verification, shared interfaces, global/no-communication
-models, perfect channel, and episode runner are implemented. See
+Environment verification, shared interfaces, all four core communication models
+(global, none, range, k-nearest), the perfect channel, and episode runner are implemented. See
 [environment verification results](docs/ENVIRONMENT_CHECK_RESULTS.md).
 
-The team's planner, metrics/monitors, LaCAM3 integration, experiment harness,
-and range/k-nearest models remain to be integrated. The oracle/global/none
-comparison awaits those dependencies; loss/delay extensions follow core validation.
+The team's planner, metrics/monitors, LaCAM3 integration, and experiment harness
+remain to be integrated. The oracle/global/none comparison and topology sweeps
+await those dependencies; matched-degree calibration and experimental results
+are still pending. Loss/delay extensions follow core validation.
 
 For context, read [the team build guide](docs/TEAM_BUILD_GUIDE.md) for assignments
 and contracts, and [the project specification](docs/PROJECT_SPEC.md) for research
@@ -27,12 +28,13 @@ requirements. This README covers the current implementation and how to use it.
 ```text
 decentralized_mapf/
   interfaces.py              Shared message, trace, communication, channel, and planner contracts
-  communication.py           Global/no-communication models and reusable graph statistics
+  communication.py           Global, none, range, k-nearest models and shared graph statistics
   channels.py                Perfect channel; inherits the base pass-through behavior
   runner.py                  Pluggable POGEMA episode loop and per-recipient routing
   __init__.py                Public imports for project modules
 tests/
   test_communication.py       Communication links and directed-graph statistics checks
+  test_topologies.py          Range/k-nearest behavior, limits, and deterministic tie-breaking
   test_runner.py              Real POGEMA integration with test-only planners and channels
 docs/
   TEAM_BUILD_GUIDE.md          Team assignments, frozen interfaces, implementation guide
@@ -91,27 +93,26 @@ and the code docstrings.
 
 ## Communication models
 
-Both models implement `CommunicationModel` and require no constructor settings:
+All four models implement `CommunicationModel` and are importable from the package:
 
 ```python
-from decentralized_mapf import GlobalCommunication, NoCommunication
+from decentralized_mapf import (
+    GlobalCommunication, NoCommunication, RangeCommunication, KNNCommunication,
+)
 
 positions = [(0, 0), (0, 1), (50, 50)]
 comm = GlobalCommunication()  # Swap for NoCommunication() to disable messages.
+# Or use RangeCommunication(r=3) / KNNCommunication(k=2).
 edges = comm.get_edges(positions)  # {0: [1, 2], 1: [0, 2], 2: [0, 1]}
 stats = comm.graph_stats(edges)
 # {'mean_degree': 2.0, 'n_components': 1, 'is_connected': True}
 ```
 
-These models select potential links. Future models can reuse `graph_stats` from
-`decentralized_mapf.communication`. Observation remains independent of communication.
-
-
-### Communication Topologies
-
-- **Range communication:** Robots communicate with other robots within a specified Manhattan distance `r`.
-- **k-nearest-neighbour (k-NN) communication:** Each robot communicates with up to `k` nearest robots, ranked by Manhattan distance. Ties are resolved by robot ID.
-
+Range uses inclusive Manhattan distance `<= r`; k-NN sends to up to `k` nearest
+robots by Manhattan distance, with ties resolved by robot ID. k-NN links are
+directed. Both reuse `graph_stats` in `decentralized_mapf.communication`.
+Observation remains independent of communication. Before k-NN sweeps, address
+the finished-robot selection limitation documented in the guide's C8 section.
 
 ## Perfect channel
 
@@ -148,8 +149,9 @@ From the repository root with the environment activated:
 python -m unittest discover -s tests -v
 ```
 
-The last code validation passed all 18 tests, covering graph statistics and real
-POGEMA integration, including routing, drops/delays, reset, and stopping behavior.
+The last code validation passed all 30 tests, covering graph statistics,
+range/k-nearest behavior, and real POGEMA runner integration, including routing,
+drops/delays, reset, and stopping behavior.
 Fake planners and imperfect channels exist only in tests. Robot-coordination
 performance remains unvalidated until the real team modules are integrated.
 
@@ -184,4 +186,4 @@ automatically; the preserved figures in `docs/figures/` are not overwritten.
 - Seed experiments, compare matched instances, and save raw results and traces
   before aggregation. Evaluate formal-methods monitors offline.
 - Keep generated output and local environments out of Git.
-- Make commits only when Ronit explicitly requests them. Never add AI coauthors.
+- Make commits only when the user explicitly requests them. Never add AI coauthors.
