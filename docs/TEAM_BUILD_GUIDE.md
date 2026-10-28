@@ -134,6 +134,8 @@ class CommunicationModel:
 
     def get_edges(self, positions: list[tuple[int, int]]) -> dict[int, list[int]]:
         """Return {sender_id: [receiver_ids]}.
+        IDs index the supplied positions; the runner maps active subsets back
+        to original robot IDs after topology selection.
         NOTE: may be asymmetric (k-NN is). Do not assume i in edges[j]
         implies j in edges[i]."""
         raise NotImplementedError
@@ -214,7 +216,9 @@ Do not use other robots' private state when planning. Keep observations in
 their original POGEMA frame and use the supplied own position for shared messages.
 
 Finished robots retain stable IDs and final positions in the trace but are
-excluded from the communication graph and inbox delivery. Graph statistics
+excluded from topology selection and inbox delivery. The runner passes active
+positions to `get_edges()` in original ID order, then maps the returned local
+indices back to stable robot IDs for routing and statistics. Graph statistics
 therefore describe active robots. Exclude the terminal record when aggregating
 decision-step statistics, and exclude hidden finished robots from safety checks.
 
@@ -799,14 +803,15 @@ isolated keys. No frozen method signatures or additional dependencies were added
 `tests/test_topologies.py` covers the topology rules and parameter boundaries;
 run the full test suite using the README's validation command.
 
-**Integration follow-up before k-NN sweeps:** the existing runner selects neighbours
-using all stored positions, then filters finished robots out of the graph. For
-k-NN this can leave fewer than k active neighbours even when others are available.
-For example, with positions `[(0, 0), (0, 1), (0, 10)]`, robot 1 finished, and k=1,
-the current runner yields `{0: [], 2: []}` instead of connecting active robots
-0 and 2. Neighbour selection should consider active robots while preserving their
-original IDs. That implementation and a regression test remain pending; this
-handoff documents the limitation without changing the runner or topology code.
+**Active-robot integration:** the runner passes only active positions to the
+topology, preserving original ID order, then maps local graph indices back to
+stable IDs. This selects up to `min(k, n_active - 1)` neighbours without allowing
+finished robots to consume slots, and preserves original-ID tie-breaking. For
+example, with positions `[(0, 0), (0, 1), (0, 10)]`, robot 1 finished, and k=1,
+the routed graph is `{0: [2], 2: [0]}`. Topology implementations treat their input
+indices as local; the runner owns the ID mapping. Regression tests in
+`tests/test_runner.py` cover reselection after arrival, original IDs, ties, and
+empty/single-active graphs across the core topologies.
 
 **Matched mean degree.** To claim "structure matters, not just quantity", the
 k-NN and range conditions must be compared at equal mean degree. Measure it:

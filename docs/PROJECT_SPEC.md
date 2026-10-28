@@ -110,6 +110,7 @@ Determines **who can hear whom** at a given timestep. Pure function of agent pos
 class CommunicationModel:
     def get_edges(self, positions: list[tuple[int,int]]) -> dict[int, list[int]]:
         """Return adjacency: agent_id -> list of agent_ids it can send to.
+        IDs index the supplied positions; the runner restores original IDs.
         Must be deterministic given positions. Randomness belongs in FailureModel."""
 
     def graph_stats(self, edges) -> dict:
@@ -133,7 +134,7 @@ to `GlobalCommunication()`, `NoCommunication()`, `RangeCommunication(r=...)`,
 and `KNNCommunication(k=...)`, exported by `decentralized_mapf`. These are research
 mode labels, not an implemented configuration factory. The frozen API is in
 `TEAM_BUILD_GUIDE.md` §3; diameter from the earlier architecture sketch is outside
-that API. See §6/C8 of the guide for topology behavior, pending integration work,
+that API. See §6/C8 of the guide for topology behavior, active-robot ID mapping,
 and the matched-mean-degree comparison required before sweeps.
 
 **Design note:** `graph_stats` is not decoration. Reporting mean degree and connectivity alongside performance is what converts a description ("performance drops at range 3") into an explanation ("performance drops when the communication graph fragments into more than ~4 components"). This is the graph-theory content of the project.

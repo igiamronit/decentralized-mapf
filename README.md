@@ -111,8 +111,9 @@ stats = comm.graph_stats(edges)
 Range uses inclusive Manhattan distance `<= r`; k-NN sends to up to `k` nearest
 robots by Manhattan distance, with ties resolved by robot ID. k-NN links are
 directed. Both reuse `graph_stats` in `decentralized_mapf.communication`.
-Observation remains independent of communication. Before k-NN sweeps, address
-the finished-robot selection limitation documented in the guide's C8 section.
+The runner selects neighbours among active robots before mapping links back to
+their original IDs, so finished robots do not consume k-NN slots. Observation
+remains independent of communication.
 
 ## Perfect channel
 
@@ -149,9 +150,9 @@ From the repository root with the environment activated:
 python -m unittest discover -s tests -v
 ```
 
-The last code validation passed all 30 tests, covering graph statistics,
+The last code validation passed all 34 tests, covering graph statistics,
 range/k-nearest behavior, and real POGEMA runner integration, including routing,
-drops/delays, reset, and stopping behavior.
+drops/delays, reset, stopping behavior, and k-NN reselection after a robot finishes.
 Fake planners and imperfect channels exist only in tests. Robot-coordination
 performance remains unvalidated until the real team modules are integrated.
 

@@ -6,11 +6,17 @@ from .interfaces import Channel, CommunicationModel, Planner
 
 
 def _active_edges(comm, positions, active):
-    """Keep stable robot IDs while excluding finished robots from the graph."""
+    """Select among active robots, then map local indices to stable robot IDs.
+
+    Preserve original ID order when compacting positions, so distance ties still
+    favour the lower original ID. Filtering after selection would let finished
+    robots consume k-NN neighbour slots.
+    """
+    agent_ids = [i for i, is_active in enumerate(active) if is_active]
+    edges = comm.get_edges([positions[i] for i in agent_ids])
     return {
-        sender: [receiver for receiver in receivers if active[receiver]]
-        for sender, receivers in comm.get_edges(positions).items()
-        if active[sender]
+        agent_ids[sender]: [agent_ids[receiver] for receiver in receivers]
+        for sender, receivers in edges.items()
     }
 
 

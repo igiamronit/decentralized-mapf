@@ -5,9 +5,10 @@ import unittest
 from pogema import GridConfig, pogema_v0
 
 from decentralized_mapf import (
-    Channel, GlobalCommunication, Message, NoCommunication, PerfectChannel,
-    Planner, StepRecord, run_episode,
+    Channel, GlobalCommunication, KNNCommunication, Message, NoCommunication,
+    PerfectChannel, Planner, RangeCommunication, StepRecord, run_episode,
 )
+from decentralized_mapf.runner import _active_edges
 
 
 class RecordingMetrics:
@@ -161,6 +162,41 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(metrics.trace[1].inbox_senders, {0: [], 1: [0, 2], 2: [0, 1]})
         self.assertEqual(metrics.trace[1].n_messages, 4)
         self.assertEqual(metrics.trace[1].mean_degree, 1.0)
+
+    def test_knn_reselects_neighbours_after_middle_robot_finishes(self):
+        env = self.environment()
+        moves = [tuple(move) for move in env.unwrapped.grid_config.MOVES]
+        planner, metrics = ScriptedPlanner({1: moves.index((1, 0))}), RecordingMetrics()
+        result = run_episode(env, KNNCommunication(1), PerfectChannel(), planner, metrics, 2)
+        self.assertEqual(result, {"steps": 2, "messages": 5})
+        self.assertEqual(metrics.trace[1].inbox_senders, {0: [2], 1: [], 2: [0]})
+        self.assertEqual(metrics.trace[1].mean_degree, 1.0)
+        self.assertEqual(metrics.trace[1].n_components, 1)
+        self.assertEqual([i for i, _ in planner.heard], [0, 1, 2, 0, 2])
+
+    def test_active_selection_keeps_original_ids_for_all_topologies(self):
+        positions, active = [(0, 0), (0, 1), (0, 2)], [True, False, True]
+        connected, isolated = {0: [2], 2: [0]}, {0: [], 2: []}
+        for model, expected in ((GlobalCommunication(), connected), (NoCommunication(), isolated),
+                                (RangeCommunication(1), isolated), (RangeCommunication(2), connected),
+                                (KNNCommunication(1), connected)):
+            with self.subTest(model=type(model).__name__, expected=expected):
+                self.assertEqual(_active_edges(model, positions, active), expected)
+
+    def test_knn_ties_keep_original_robot_id_order(self):
+        positions = [(99, 99), (0, 0), (99, 98), (0, 2), (2, 0)]
+        self.assertEqual(
+            _active_edges(KNNCommunication(1), positions, [False, True, False, True, True]),
+            {1: [3], 3: [1], 4: [1]},
+        )
+
+    def test_empty_and_single_active_graphs(self):
+        positions = [(0, 0), (0, 1), (0, 2)]
+        for model in (GlobalCommunication(), NoCommunication(), RangeCommunication(3),
+                      KNNCommunication(10)):
+            with self.subTest(model=type(model).__name__):
+                self.assertEqual(_active_edges(model, positions, [False, False, False]), {})
+                self.assertEqual(_active_edges(model, positions, [False, False, True]), {2: []})
 
     def test_reset_clears_channel_and_planner_between_episodes(self):
         env, planner, channel = self.environment(), ScriptedPlanner(), OneStepDelay()

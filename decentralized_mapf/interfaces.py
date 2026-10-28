@@ -53,6 +53,8 @@ class CommunicationModel:
 
         positions[i] is robot i's position. Concrete models implement the link
         selection rule. This method does not create or deliver messages.
+        IDs are local to the supplied list; the runner maps active subsets back
+        to original robot IDs after selection.
         """
         raise NotImplementedError
 
