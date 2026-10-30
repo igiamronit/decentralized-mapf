@@ -96,3 +96,16 @@ metrics appear at episode end in **`infos[0]['metrics']`**.
 
 Raw JSON includes the full scale configuration, package provenance, collision
 frames, instance hashes, observation shapes, and reset/intermediate/terminal info.
+
+## Follow-up: staggered arrival costs
+
+Later recorder validation exposed a limitation not covered by the original
+steps-1-and-2 fixture. With two robots arriving at steps 1 and 4, the pinned
+`SumOfCostsAndMakespanMetric` reports SoC 8 instead of 5. It clears a finished
+robot's stored arrival time on later nonterminal steps. The original six checks
+and recorded results above remain historical evidence for those exact fixtures.
+
+The project's `Metrics` now reports solved-run SoC and makespan from first-arrival
+timestamps in the trace, while retaining raw POGEMA values for comparison.
+`tests/test_episode_integration.py` covers staggered arrivals, initial goals and
+saved-data recomputation. See the team guide's metrics contract for the policy.

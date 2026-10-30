@@ -29,6 +29,10 @@ def run_episode(env, comm: CommunicationModel, channel: Channel,
     state and final state, so K environment steps produce K+1 records. The final
     record has no transmissions or actions. Specifications run offline.
 
+    An optional metrics.capture_environment(infos) hook receives POGEMA wrapper
+    metrics after reset/step; it only copies data, never evaluates specifications.
+    Older recorders without this hook retain their original behavior.
+
     Planner.reset() clears episode state; observe() receives each active robot's
     current observation and own map-relative position/goal before any compose().
     The runner never constructs a planner, changes sensing settings, or closes
@@ -43,6 +47,9 @@ def run_episode(env, comm: CommunicationModel, channel: Channel,
         raise ValueError("Set the environment's seed before running an episode")
 
     observations, infos = env.reset(seed=config.seed)
+    capture_environment = getattr(metrics, "capture_environment", None)
+    if capture_environment is not None:
+        capture_environment(infos)
     channel.reset()
     planner.reset()
     goals = [tuple(p) for p in env.unwrapped.get_targets_xy(ignore_borders=True)]
@@ -87,6 +94,8 @@ def run_episode(env, comm: CommunicationModel, channel: Channel,
             for i in range(len(positions))
         ]
         observations, _, terminated, truncated, infos = env.step(actions)
+        if capture_environment is not None:
+            capture_environment(infos)
         finished = all(done or timed_out for done, timed_out in zip(terminated, truncated))
 
     return metrics.summary()

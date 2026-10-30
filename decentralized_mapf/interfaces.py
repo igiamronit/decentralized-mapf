@@ -34,6 +34,8 @@ class StepRecord:
     rather than the neighbours that could potentially send. n_messages counts
     delivered transmissions, and max_age is the largest t - sent_at delivered
     at this timestep (zero when no messages arrive).
+    The recorder saves intended moves separately; this row alone cannot
+    identify a blocking robot's claim. See Metrics.to_data() for the complete raw bundle.
     """
 
     t: int

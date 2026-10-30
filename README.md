@@ -6,11 +6,24 @@ The planned study keeps one decentralized planner fixed across global, none, ran
 
 ## Current status
 
-Environment verification, shared interfaces, all four core communication models (global, none, range, k-nearest), the perfect channel, episode runner, and planners are implemented. See [environment verification results](docs/ENVIRONMENT_CHECK_RESULTS.md).
+The environment verification, shared interfaces, all four core communication models (global, none, range, k-nearest), the perfect channel, episode runner, planners, and metrics/monitors are implemented. See [environment verification results](docs/ENVIRONMENT_CHECK_RESULTS.md).
+
+The metrics and monitor tests cover trace recording, POGEMA metric capture, first-arrival cost calculations, reachability, liveness, safety, deadlock diagnosis, intention recording, and JSON persistence. Planner episode tests use the existing test recorder and do not depend on the metrics module.
+
+The planner episode tests cover adjacent and more distant packets, horizontal and vertical corridors, waiting for a peer to pass, no-message stalls, and reset. The metrics checks cover analytic robustness traces, message and initial-goal arrivals, terminal intention filtering, native diagnostics, and JSON persistence. The README example and saved-trace reload are also tested.
 
 The C6 centralized LaCAM3 oracle adapter, oracle path validation, and oracle metrics are implemented and tested. The oracle runs independently of the decentralized simulation loop and provides a centralized reference for evaluation.
 
-The broader offline metrics/monitors and experiment harness remain to be integrated. The oracle/global/none comparison and topology sweeps, matched-degree calibration, and experimental results are still pending. Loss/delay extensions follow core validation.
+The implementation is in `decentralized_mapf/oracle/`:
+- `lacam_adapter.py` converts the grid and start/goal configuration to MovingAI map/scenario files, invokes the LaCAM3 executable, and parses its solution.
+- `validation.py` validates the input problem and returned paths, including coordinate validity, obstacles, legal transitions, vertex collisions, and edge swaps.
+- `metrics.py` calculates makespan, sum of costs (SoC), and the decentralized-to-oracle SoC ratio.
+
+A separate smoke test has successfully invoked the actual Windows LaCAM3 executable and returned valid paths with makespan 4 and SoC 8.
+
+These checks establish implementation and correctness on the tested fixtures; they are not experimental performance results.
+
+The experiment harness, oracle/global/none comparison, topology sweeps, matched-degree calibration, and experimental results remain pending. Loss/delay extensions follow core validation.
 
 For context, read [the team build guide](docs/TEAM_BUILD_GUIDE.md) for assignments and contracts, and [the project specification](docs/PROJECT_SPEC.md) for research requirements. This README covers the current implementation and how to use it.
 
@@ -20,27 +33,30 @@ For context, read [the team build guide](docs/TEAM_BUILD_GUIDE.md) for assignmen
 decentralized_mapf/
   interfaces.py              Shared message, trace, communication, channel, and planner contracts
   communication.py           Global, none, range, k-nearest models and shared graph statistics
-  channels.py                 Perfect channel; inherits the base pass-through behavior
-  runner.py                   Pluggable POGEMA episode loop and per-recipient routing
-  pathfinding.py               Shared deterministic static-map A*
-  planner.py                   IndependentAStar and DCMAPFPlanner with local yielding
-  oracle/
-    __init__.py                Public oracle exports
-    lacam_adapter.py           LaCAM3 executable adapter and MovingAI conversion
-    validation.py              MAPF problem and solution validation
-    metrics.py                 Makespan, SoC, and oracle SoC ratio
-  __init__.py                  Public imports for project modules
+channels.py             Perfect channel; inherits the base pass-through behavior
+runner.py               Pluggable POGEMA episode loop and per-recipient routing
+pathfinding.py          Shared deterministic static-map A*
+planner.py              IndependentAStar and DCMAPFPlanner with local yielding
+metrics.py              Trace recorder, POGEMA metric capture, raw bundle export
+monitors.py             Offline reachability, liveness, safety and stall diagnosis
+oracle/
+    __init__.py         Public oracle exports
+    lacam_adapter.py    LaCAM3 executable adapter and MovingAI conversion
+    validation.py      MAPF problem and solution validation
+    metrics.py         Makespan, SoC, and oracle SoC ratio
+__init__.py             Public imports for project modules
 
 tests/
-  test_communication.py        Communication links and directed-graph statistics checks
-  test_topologies.py           Range/k-nearest behavior, limits, and deterministic tie-breaking
-  test_runner.py                Real POGEMA integration with test-only planners and channels
-  test_planner.py               Pathfinding, broadcasts and local yield decisions
-  test_planner_integration.py   Planner episodes, retreat, waiting and reset
-  test_lacam_adapter.py         LaCAM3 adapter, parser, timeout and failure handling
-  test_oracle_metrics.py        Oracle metric calculations
-  test_oracle_validation.py     Problem and solution validation
-
+    test_communication.py       Communication links and directed-graph statistics checks
+    test_topologies.py          Range/k-nearest behavior, limits, and deterministic tie-breaking
+    test_runner.py              Real POGEMA integration with test-only planners and channels
+    test_planner.py             Pathfinding, broadcasts and local yield decisions
+    test_planner_integration.py Planner episodes, retreat, waiting and reset
+    test_metrics.py             Analytic monitor traces and JSON persistence
+    test_episode_integration.py Real POGEMA episodes with planner and metrics modules
+    test_lacam_adapter.py       LaCAM3 adapter, parser, timeout and failure handling
+    test_oracle_metrics.py      Oracle metric calculations
+    test_oracle_validation.py   Problem and solution validation
 docs/
   TEAM_BUILD_GUIDE.md           Team assignments, frozen interfaces, implementation guide
   PROJECT_SPEC.md               Research question, experiment plan, references
@@ -148,7 +164,7 @@ For an episode, pass the planner to `run_episode` with the chosen communication 
 
 No communication gives independent A* behavior without changing planners. When yielding, a robot can retreat along a corridor to reach an off-axis pocket. It keeps that refuge until its goal route is clear or the peer is no longer heard. Only received positions and claims constrain the escape search.
 
-This is a simplified A* plus local yield baseline, not a validated reproduction of the full published algorithm or a complete MAPF solver. Narrow bottlenecks and multi-robot cycles may still stall. See the [planner contract](docs/TEAM_BUILD_GUIDE.md#planner) for the exact rule.
+This is a simplified A* plus local yield baseline, not a validated reproduction of the full published algorithm or a complete MAPF solver. Narrow bottlenecks and multi-robot cycles may still stall. The centralized oracle is implemented as a separate evaluation reference. The experiment harness and statistical comparisons remain integration dependencies. See the [planner contract](docs/TEAM_BUILD_GUIDE.md#planner) for the exact rule.
 
 ## Centralized LaCAM3 oracle (C6)
 
@@ -222,6 +238,71 @@ ratio = oracle_soc_ratio(decentralized_soc, reference["SoC"])
 `oracle_soc_ratio()` computes decentralized SoC divided by oracle SoC. A value of `1.0` means equal SoC; values above `1.0` indicate higher decentralized cost. A zero oracle SoC is rejected because the ratio is undefined.
 
 The oracle is a centralized comparison reference, not evidence that the decentralized planner is optimal or complete. Oracle metrics do not replace the broader experiment recorder, offline monitors, or statistical analysis.
+This is a simplified A* plus local yield baseline, not a validated reproduction
+of the full published algorithm or a complete MAPF solver. Narrow bottlenecks
+and multi-robot cycles may still stall. The centralized oracle, experiment
+harness and statistical comparisons remain integration dependencies.
+See the [planner contract](docs/TEAM_BUILD_GUIDE.md#planner) for the exact rule.
+
+E5's [measurement contract](docs/E5_CONSENSUS_CONTRACT.md) defines one round as
+one decision timestep and agreement as both conflicting agents receiving each
+other's current claims. It fixes episode boundaries, zero-based elapsed timing,
+missing-agreement reporting and verification criteria. Physical conflict
+clearance is separate. The E5 tracker and trace-sidecar integration remain
+pending; this documents the handoff without changing planner behavior.
+
+## Metrics and monitors
+
+The planner and metrics modules work through the shared runner. This small deterministic
+fixture exercises a head-on conflict with room for a detour; it is a correctness
+example, not an experimental comparison:
+
+```python
+import json
+from pathlib import Path
+from pogema import GridConfig, SumOfCostsAndMakespanMetric, pogema_v0
+from decentralized_mapf import DCMAPFPlanner, GlobalCommunication, Metrics, PerfectChannel, run_episode
+
+config = GridConfig(
+    map=".....\n.....", num_agents=2,
+    agents_xy=[[0, 1], [0, 2]], targets_xy=[[0, 4], [0, 0]],
+    seed=7, obs_radius=2, max_episode_steps=20,
+    observation_type="POMAPF", on_target="finish",
+    collision_system="priority", integration=None,
+)
+env = SumOfCostsAndMakespanMetric(pogema_v0(grid_config=config))
+try:
+    env.reset(seed=config.seed)
+    goals = env.unwrapped.get_targets_xy(ignore_borders=True)
+    planner = DCMAPFPlanner(env.unwrapped.get_obstacles(ignore_borders=True),
+                           goals, moves=config.MOVES)
+    metrics = Metrics(goals, seed=config.seed,
+                      intent_provider=planner.intended_steps)
+    result = run_episode(env, GlobalCommunication(), PerfectChannel(),
+                         planner, metrics, max_steps=config.max_episode_steps)
+    out = Path("outputs/traces/planner_metrics_example.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"summary": result, "raw": metrics.to_data()}, indent=2))
+    print(result)
+finally:
+    env.close()
+```
+
+The recorder evaluates reachability, bounded eventual-progress liveness, safety
+and stall diagnoses after the run. ISR/CSR come from POGEMA. Solved-run SoC and
+makespan use the trace's first arrivals, correcting a verified bug in the pinned
+cost wrapper: arrivals at steps 1 and 4 must give SoC 5, while the wrapper reports
+8. The wrapper in the example is optional; its raw values remain available in
+`environment_metrics` for comparison.
+
+Save both the summary and raw bundle. Intentions cover decision rows only, with
+no stale entry for the terminal state. Unsolved costs remain `None`, as do
+success metrics and costs if a caller cuts off before POGEMA supplies terminal
+ISR/CSR. `Metrics.from_data(raw_bundle).summary()` recomputes offline after a JSON
+round trip, including from older raw bundles; regenerate older cost summaries.
+See the [metrics contract](docs/TEAM_BUILD_GUIDE.md#metrics-and-monitors) for
+window semantics, blocker evidence and the cost definition. Oracle integration
+and statistical sweeps remain pending.
 
 ## Validation
 
@@ -231,11 +312,13 @@ From the repository root with the Python 3.13 environment activated:
 python -m pytest -q -p no:cacheprovider
 ```
 
-The current integrated test suite passes **103 tests and 55 subtests**. It includes communication and runner checks, planner unit and integration tests using real POGEMA, and the C6 oracle metrics, validation, and adapter tests.
+The test suite covers the communication models, episode runner, planner unit and integration behavior, metrics and offline monitors, and the centralized C6 oracle.
 
-The C6 tests cover malformed inputs and paths, coordinate conversion, collision and transition validation, metric calculations, parser failure cases, invalid timeouts, and adapter failure handling. A separate smoke test has also successfully invoked the actual Windows LaCAM3 executable and returned valid paths with makespan 4 and SoC 8 for a two-agent 3×3 test instance.
+Planner episodes cover adjacent and more distant packets, horizontal and vertical corridors, waiting for a peer to pass, no-message stalls, and reset. Metrics checks cover analytic robustness traces, staggered and initial-goal arrivals, terminal intention filtering, native diagnostics, and JSON persistence. Planner episode tests use the existing test recorder and do not depend on the metrics module.
 
-These are implementation and correctness checks, not experimental performance results.
+The C6 tests cover malformed inputs and paths, coordinate conversion, collision and transition validation, metric calculations, parser failure cases, invalid timeouts, and adapter failure handling. A separate smoke test has successfully invoked the actual Windows LaCAM3 executable and returned valid paths with makespan 4 and SoC 8.
+
+The README example and saved-trace reload are also tested. These checks establish implementation and correctness on the tested fixtures; they are not experimental performance results. The complete integrated test suite will be rerun after resolving the merge.
 
 ## Run the existing scripts
 

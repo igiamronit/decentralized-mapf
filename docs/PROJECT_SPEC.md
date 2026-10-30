@@ -40,6 +40,12 @@ N agents on a 2D grid. Each agent has its own start cell and its own goal cell (
 | Formal methods / behavioural guarantees | One proved lemma (deadlock-freedom under bounded delay) |
 | Distributed optimization | Agents locally negotiate a joint outcome none of them can compute alone |
 
+For the current simplified yield baseline, the consensus measurement uses the
+[E5 measurement contract](E5_CONSENSUS_CONTRACT.md): time to mutual current-claim
+receipt, rather than an implemented ACK protocol or guaranteed physical conflict
+clearance. The guide calls this extension E5; the experiment matrix below calls
+it E10. The contract fixes the instrumentation semantics; the tracker is pending.
+
 ---
 
 ## 2. CRITICAL TERMINOLOGY — DO NOT CONFLATE THESE
@@ -301,11 +307,24 @@ Minimum rigour: **3 map types × 5 seeds × every config.** Same maps, same star
 |---|---|---|
 | **Success rate** | Fraction of agents reaching goal within step limit | Headline number. Standard across the MAPF literature, so comparable to published results. |
 | **Makespan** | Timestep at which the *last* agent arrives | Standard MAPF metric |
-| **Sum-of-costs (SoC)** | Total timesteps summed over all agents | Standard MAPF metric |
-| **Deadlock count** | Agents with zero net displacement over the final K timesteps while not at goal | Replaces "collision count" if collisions are impossible |
+| **Sum-of-costs (SoC)** | Sum of first-arrival timesteps over all agents | Standard MAPF metric |
+| **Deadlock count** | Unfinished agents violating bounded eventual progress over an observed W-step window | Finite-trace stall proxy; see the guide's monitor semantics |
 | **Communication overhead** | See §6.2 | The metric the research question depends on |
 
 ### 6.2 🟢 Defining communication overhead
+
+**Monitor implementation and semantic clarification:** offline `monitors.py` provides
+goal reachability, bounded eventual-progress liveness, safety and quantitative
+robustness. The guide §3.5 defines the precise integer strict-progress margin,
+pre-arrival guard and unknown short-window behavior; it corrects the earlier
+endpoint-only pseudocode and zero-sign inconsistency. `metrics.py` captures native
+POGEMA success metrics and raw wrapper values, plus a trace and decision-step
+intentions for offline blocker diagnosis. Solved-run SoC and makespan use recorded
+first arrivals: a verified defect in the pinned POGEMA cost wrapper forgets early
+arrivals. See the guide's metrics contract for examples, the cost definition and
+migration of saved summaries. Missing blocker evidence stays unattributed. A known neighbour in a
+stall is a diagnostic signal, not proof of a coding bug or of instance feasibility.
+Persist both raw data and summaries; C6/C7/C9 integrations remain outstanding.
 
 There is **no standard definition**. We must choose one and defend it in the report. Recommended: report all three, lead with the first.
 
