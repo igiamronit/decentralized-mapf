@@ -11,12 +11,12 @@ centralized comparison baseline.
 ## Current status
 
 Environment verification, shared interfaces, all four core communication models
-(global, none, range, k-nearest), the perfect channel, episode runner, and
-planners are implemented. See
+(global, none, range, k-nearest), the perfect channel, episode runner, planners,
+and metrics/monitors are implemented. See
 [environment verification results](docs/ENVIRONMENT_CHECK_RESULTS.md).
 
-The metrics/monitors, LaCAM3 integration, and experiment harness
-remain to be integrated. The oracle/global/none comparison and topology sweeps
+LaCAM3 integration and the experiment harness remain pending. The
+oracle/global/none comparison and topology sweeps
 await those dependencies; matched-degree calibration and experimental results
 are still pending. Loss/delay extensions follow core validation.
 
@@ -34,6 +34,8 @@ decentralized_mapf/
   runner.py                  Pluggable POGEMA episode loop and per-recipient routing
   pathfinding.py             Shared deterministic static-map A*
   planner.py                 IndependentAStar and DCMAPFPlanner with local yielding
+  metrics.py                 Trace recorder, POGEMA metric capture, raw bundle export
+  monitors.py                Offline reachability, liveness, safety and stall diagnosis
   __init__.py                Public imports for project modules
 tests/
   test_communication.py       Communication links and directed-graph statistics checks
@@ -41,6 +43,8 @@ tests/
   test_runner.py              Real POGEMA integration with test-only planners and channels
   test_planner.py             Pathfinding, broadcasts and local yield decisions
   test_planner_integration.py Planner episodes, retreat, waiting and reset
+  test_metrics.py             Analytic monitor traces and JSON persistence
+  test_episode_integration.py Real POGEMA episodes with planner and metrics modules
 docs/
   TEAM_BUILD_GUIDE.md          Team assignments, frozen interfaces, implementation guide
   PROJECT_SPEC.md              Research question, experiment plan, references
@@ -175,9 +179,62 @@ longer heard. Only received positions and claims constrain the escape search.
 
 This is a simplified A* plus local yield baseline, not a validated reproduction
 of the full published algorithm or a complete MAPF solver. Narrow bottlenecks
-and multi-robot cycles may still stall. The metrics suite, centralized oracle,
-experiment harness and statistical comparisons remain integration dependencies.
+and multi-robot cycles may still stall. The centralized oracle, experiment
+harness and statistical comparisons remain integration dependencies.
 See the [planner contract](docs/TEAM_BUILD_GUIDE.md#planner) for the exact rule.
+
+## Metrics and monitors
+
+The planner and metrics modules work through the shared runner. This small deterministic
+fixture exercises a head-on conflict with room for a detour; it is a correctness
+example, not an experimental comparison:
+
+```python
+import json
+from pathlib import Path
+from pogema import GridConfig, SumOfCostsAndMakespanMetric, pogema_v0
+from decentralized_mapf import DCMAPFPlanner, GlobalCommunication, Metrics, PerfectChannel, run_episode
+
+config = GridConfig(
+    map=".....\n.....", num_agents=2,
+    agents_xy=[[0, 1], [0, 2]], targets_xy=[[0, 4], [0, 0]],
+    seed=7, obs_radius=2, max_episode_steps=20,
+    observation_type="POMAPF", on_target="finish",
+    collision_system="priority", integration=None,
+)
+env = SumOfCostsAndMakespanMetric(pogema_v0(grid_config=config))
+try:
+    env.reset(seed=config.seed)
+    goals = env.unwrapped.get_targets_xy(ignore_borders=True)
+    planner = DCMAPFPlanner(env.unwrapped.get_obstacles(ignore_borders=True),
+                           goals, moves=config.MOVES)
+    metrics = Metrics(goals, seed=config.seed,
+                      intent_provider=planner.intended_steps)
+    result = run_episode(env, GlobalCommunication(), PerfectChannel(),
+                         planner, metrics, max_steps=config.max_episode_steps)
+    out = Path("outputs/traces/planner_metrics_example.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"summary": result, "raw": metrics.to_data()}, indent=2))
+    print(result)
+finally:
+    env.close()
+```
+
+The recorder evaluates reachability, bounded eventual-progress liveness, safety
+and stall diagnoses after the run. ISR/CSR come from POGEMA. Solved-run SoC and
+makespan use the trace's first arrivals, correcting a verified bug in the pinned
+cost wrapper: arrivals at steps 1 and 4 must give SoC 5, while the wrapper reports
+8. The wrapper in the example is optional; its raw values remain available in
+`environment_metrics` for comparison.
+
+Save both the summary and raw bundle. Intentions cover decision rows only, with
+no stale entry for the terminal state. Unsolved costs remain `None`, as do
+success metrics and costs if a caller cuts off before POGEMA supplies terminal
+ISR/CSR. `Metrics.from_data(raw_bundle).summary()` recomputes offline after a JSON
+round trip, including from older raw bundles; regenerate older cost summaries.
+See the [metrics contract](docs/TEAM_BUILD_GUIDE.md#metrics-and-monitors) for
+window semantics, blocker evidence and the cost definition. Oracle integration
+and statistical sweeps remain pending.
 
 ## Validation
 
@@ -187,12 +244,16 @@ From the repository root with the environment activated:
 python -m unittest discover -s tests -v
 ```
 
-All 53 tests pass with Python 3.13.12 and the pinned POGEMA revision. The suite
-includes the existing communication/runner checks, 13 planner unit tests, and six
-planner episode tests using real POGEMA and the existing test recorder. Episodes
-cover retreat into nearby and more distant pockets, vertical/reversed corridors,
-waiting for a peer to pass, reset, and expected stalls without messages or passing
-space. These are correctness checks, not experimental performance results.
+All 76 tests pass with Python 3.13.12 and the pinned POGEMA revision. Planner
+episodes cover adjacent and more distant pockets, horizontal and vertical
+corridors, waiting for a peer to pass, no-message stalls, and reset. The metrics
+checks cover analytic robustness traces, staggered and initial-goal arrivals,
+terminal intention filtering, native diagnostics and JSON persistence. Planner
+episode tests use the existing test recorder and do not depend on the metrics module.
+
+The README example and saved-trace reload also pass. These checks establish
+behavior on selected fixtures; statistical comparisons and oracle validation
+remain pending.
 
 ## Run the existing scripts
 

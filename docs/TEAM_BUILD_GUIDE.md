@@ -266,7 +266,9 @@ in E2 and E6 and may not ship. Do not volunteer them until they exist.
 
 ### The signals
 
-All computed offline from the `StepRecord` trace in §3. No new instrumentation.
+Distances and deliveries are computed offline from the frozen `StepRecord` trace
+in §3. Blocker attribution also needs the intention sidecar described under Metrics and monitors;
+positions and sender IDs alone cannot reconstruct which cell a robot planned to enter.
 
 ```
 d_i(t)     = manhattan(positions[i], goals[i])      # distance to goal
@@ -278,12 +280,15 @@ age_ij(t)  = t - m.sent_at                          # zero under C3; E2 only
 
 ```
 phi_reach_i  =  F_[0,T] ( d_i(t) <= 0 )                     # it arrives
-phi_live_i   =  G ( F_[0,W] ( d_i(t+k) < d_i(t) ) )         # it never stalls W steps
+phi_live_i   =  G_active ( F_[1,W] ( d_i(t+k) < d_i(t) ) )  # progress before arrival
 phi_safe     =  G ( sep(t) >= 1 )                           # no co-occupancy
 ```
 
-`phi_live` **is** the deadlock detector — the same ten-step window test C5
-already described, now with a definition and a numeric margin. `phi_safe` is
+`phi_live` **is** the shared stall detector. It tests for an eventually-closer
+position within each complete W-step window, starting before first arrival. A
+violation is a finite-trace stall signal, not proof of permanent deadlock; a
+necessary detour can violate it. Only unfinished agents with a violation are
+counted by `deadlocked_agents`. `phi_safe` is
 structurally true in POGEMA (gotcha 5), so it is not a result; it is a monitor on
 our own implementation, and if it ever fires we have a bug in the loop.
 
@@ -296,12 +301,22 @@ rho_reach_i =  -min over t of d_i(t)
                # 0 means arrived. -3 means it got within three cells and stopped.
                # Bounded above by 0 by construction; it is a shortfall measure.
 
-rho_live_i  =  min over k of ( d_i(t_k) - d_i(t_k + W) )
-               # > 0: always closing distance. <= 0: stalled for a full window.
+rho_live_i  =  min_k max_{j=k+1,...,k+W} ( d_i(k) - d_i(j) - 1 )
+               # >= 0: every evaluated window has a closer position.
+               # < 0: at least one complete window has no closer position.
 
 rho_safe    =  min over t of ( sep(t) - 1 )
                # >= 0 always, in a correct implementation.
 ```
+
+**Liveness semantic correction (before sweeps):** the earlier endpoint expression
+`d(k)-d(k+W)` did not implement the stated eventually formula: it ignored progress
+inside the window. Its zero-as-failure rule also contradicted the shared `>=0`
+satisfaction convention. The implementation follows the formula above; subtracting
+one encodes strict progress on integer Manhattan distances. Its version is
+`bounded_eventual_progress_v1` in summaries and saved bundles. No complete window
+means `None` (unknown), not success or failure. Post-arrival windows are excluded.
+Safety excludes robots on and after first arrival under `on_target="finish"`.
 
 Report **mean `rho_reach` over agents**, per run, next to ISR and CSR. This is
 the number that answers "how *gracefully* does it degrade" rather than "did it
@@ -328,9 +343,14 @@ with failure.
 `inbox_senders`:
 
 - **Epistemic failure** — the blocking neighbour is not in the agent's inbox.
-  The graph could not carry the fact. This is the finding.
+  This records a missing one-hop claim; it does not distinguish topology from
+  channel loss, nor prove that receiving the claim would have resolved the stall.
 - **Rule failure** — the neighbour *was* in the inbox and the yield rule stalled
-  anyway. This is a bug in C4. Find it before the sweeps.
+  anyway. Investigate the planner and map constraints before the sweeps; this
+  is not by itself proof of a coding bug or that the instance was solvable.
+- **Unattributed** — no blocker can be identified from saved pre-decision
+  intentions. Keep this category; do not turn missing evidence into an epistemic
+  failure. Report its count alongside the split.
 
 The ratio between these two is Harsh's deadlock characterisation and the spine
 of Dhanvi's synthesis.
@@ -583,7 +603,7 @@ class PerfectChannel(Channel):
 
 **Implemented:** `planner.py` exports `IndependentAStar` and `DCMAPFPlanner`;
 `pathfinding.py` supplies their shared deterministic A*. Both use the frozen
-`Planner` interface and the existing runner. See README for a usage example.
+`Planner` interface and the existing runner. See README for a complete example.
 
 ```python
 planner = DCMAPFPlanner(grid_map, goals, moves=env.unwrapped.grid_config.MOVES)
@@ -632,108 +652,84 @@ claim paper-level success rates or start C9 sweeps without investigating rule
 failures on solvable cases. Dhanvi's E5 can instrument this rule; Charitha's E6
 must account for occupancy, sidesteps, and graph assumptions explicitly.
 
-### C5 — Spec monitors, deadlock detector & metrics (Harsh)
+### Metrics and monitors
 
-Two files. `Metrics` only *records*; every property is evaluated afterwards in
-`monitors.py`. Read §3.5 first — the formulas there are what this implements.
-
-Blocker diagnosis also needs pre-decision intentions from
-`planner.intended_steps()`, saved separately as `{t: {agent_id: next_cell}}`.
-The frozen `StepRecord` and recorder signature stay unchanged. The helper takes
-four arguments: agent ID, own position, own intended cell, and neighbour messages.
-A frozen trace alone cannot reconstruct these claims; absent evidence must remain
-unattributed. The monitor pseudocode below illustrates this handoff.
+**Implemented:** `metrics.py` records frozen `StepRecord` snapshots;
+`monitors.py` evaluates all properties offline. Read the corrected §3.5 semantics.
 
 ```python
-class Metrics:
-    """Records the trace. Decides nothing mid-episode."""
-    W = 10                                   # no-stall window
-
-    def record(self, t, positions, graph_stats, arrived, inboxes):
-        self.trace.append(StepRecord(
-            t=t,
-            positions=list(positions),
-            mean_degree=graph_stats['mean_degree'],
-            n_components=graph_stats['n_components'],
-            n_messages=len(arrived),
-            inbox_senders={i: [m.sender for m in msgs]
-                           for i, msgs in inboxes.items()},
-            max_age=max((t - m.sent_at for m in arrived), default=0),
-        ))
+metrics = Metrics(goals, seed=seed, window=10,
+                  intent_provider=planner.intended_steps)
+result = run_episode(env, comm, channel, planner, metrics, max_steps)
+raw_bundle = metrics.to_data()
+# After saving/loading raw_bundle as JSON:
+restored = Metrics.from_data(raw_bundle)
+recomputed = restored.summary()
 ```
 
-```python
-# monitors.py — offline, pure functions of (trace, goals)
+Existing `record(t, positions, graph_stats, arrived, inboxes)` and `summary()`
+signatures are unchanged. The runner additionally calls optional
+`capture_environment(infos)` after reset/step. This hook only copies POGEMA's
+metrics from `infos[0]`; it does not evaluate specifications online and remains
+compatible with old recorders that have no hook. Default finish-mode POGEMA
+supplies ISR/CSR. `SumOfCostsAndMakespanMetric(env)` is optional: it supplies raw
+cost values for comparison, while reported costs come from the trace.
 
-def d(rec, i, goals):
-    return manhattan(rec.positions[i], goals[i])
+**Verified exception to the original wrapper-only instruction:** the pinned
+POGEMA cost wrapper clears an early robot's arrival time after it becomes inactive.
+With arrivals at steps 1 and 4, it reports SoC 8 instead of 5; arrivals at 1, 3
+and 6 give 18 instead of 10. For successful runs, `Metrics` reuses
+`monitors.first_arrival()` and reports `SoC = sum(arrival_steps)` and
+`makespan = max(arrival_steps)`. A robot initially at its goal has arrival step
+zero. Raw wrapper results remain unchanged in `environment_metrics`; they are
+not used as the standard cost metrics. Summary and raw bundles carry
+`cost_definition="first_arrival_steps_v1"`. A successful CSR without every
+recorded arrival raises an error rather than yielding a misleading cost.
 
-def rho_reach(trace, i, goals):                      # phi_reach
-    return -min(d(rec, i, goals) for rec in trace)   # 0 == arrived
+**Bounded-run convention:** use `max_steps == config.max_episode_steps` so an
+unsolved run ends at POGEMA's own timeout and produces its terminal metrics. If
+our caller cuts off earlier (including zero steps), built-in metrics are unknown
+and returned as `None`; `n_arrived` and trace robustness are still available.
+Makespan and SoC are `None` for unsolved runs, for aggregation over solved
+instances only. The raw `environment_metrics` dictionary retains the wrapper's
+original timeout values. Always report success alongside solved-only costs.
 
-def rho_live(trace, i, goals, W=10):                 # phi_live
-    return min(d(trace[k], i, goals) - d(trace[k + W], i, goals)
-               for k in range(len(trace) - W))       # <= 0 == stalled
+**Blocker evidence:** `StepRecord` is unchanged. Its positions/inbox IDs alone
+cannot identify a planned conflict. With `intent_provider`, the recorder captures
+pre-decision `{agent_id: next_cell}` mappings in `intents[t]`. After the run,
+`deadlock_causes(trace, goals, W, intents=...)` reconstructs potential blockers
+using the planner's helper and looks for their IDs in the inbox at the
+earliest violating window's start. Absent intentions or no identifiable blocker yield `unattributed`.
+These labels are diagnostic proxies, not a causal proof. No experiment may
+silently discard unattributed stalls or declare every missing inbox the cause.
 
-def rho_safe(trace):                                 # phi_safe, sanity only
-    return min(min_pairwise_distance(rec.positions) - 1 for rec in trace)
+The summary includes seed, agent count, executed steps, window, liveness and
+cost definitions, ISR/CSR, solved-only costs, `n_arrived`, counts for all three deadlock
+labels, per-run mean reach/liveness robustness, the number of agents with
+evaluated liveness, safety margin, delivered messages, and mean graph statistics.
+`pct_epistemic` is the fraction among **attributed** stalls (not a percentage),
+or `None` when none are attributed. `rho_safe` is `None` when no active pair exists.
+The summary's `deadlock_causes` uses string robot-ID keys so saved JSON summaries
+compare directly with recomputed summaries; monitor functions use integer IDs.
 
-def deadlocked_agents(trace, goals, W=10):
-    """phi_live violated AND not yet arrived. Replaces the old window check."""
-    return {i for i in range(len(goals))
-            if rho_live(trace, i, goals, W) <= 0
-            and rho_reach(trace, i, goals) < 0}
+Message rate is delivered transmissions / (initial fleet size × executed steps),
+zero for a zero-step run. Means of degree and component count exclude the terminal
+row, which has no decision or transmissions. Finished robots remain in position
+rows but are excluded from safety and future liveness requirements. The single
+liveness evaluator drives stall detection; there is no second displacement test.
 
-def deadlock_causes(trace, goals, W=10, *, intents=None):
-    out = {}
-    for i in deadlocked_agents(trace, goals, W):
-        rec = trace[stall_start(trace, i, goals, W)]
-        claims = (intents or {}).get(rec.t, {})
-        next_cell = claims.get(i)
-        if next_cell is None or tuple(next_cell) == tuple(rec.positions[i]):
-            out[i] = 'unattributed'
-            continue
-        neighbours = [Message(j, rec.positions[j], goals[j], [tuple(cell)],
-                              sent_at=rec.t)
-                      for j, cell in claims.items() if j != i
-                      and tuple(rec.positions[j]) != tuple(goals[j])]
-        blocker = blocking_neighbour(i, tuple(rec.positions[i]),
-                                     tuple(next_cell), neighbours)
-        out[i] = ('unattributed' if blocker is None else
-                  'rule_failure' if blocker in rec.inbox_senders[i] else 'epistemic')
-    return out
-
-```
-
-```python
-    def summary(self):
-        causes = deadlock_causes(self.trace, self.goals)
-        return {
-            'ISR': arrived / n_agents,              # individual success rate
-            'CSR': 1.0 if arrived == n_agents else 0.0,
-            'makespan': last_arrival_step,
-            'SoC': sum(steps_per_agent),
-            'n_deadlocked': len(causes),
-            'pct_epistemic': frac(causes, 'epistemic'),
-            'rho_reach_mean': mean(rho_reach(self.trace, i, self.goals)
-                                   for i in range(n_agents)),
-            'rho_live_mean':  mean(rho_live(self.trace, i, self.goals)
-                                   for i in range(n_agents)),
-            'messages_per_agent_per_step': self.msg_count / (n_agents * t),
-        }
-```
-
-POGEMA's own `ISRMetric`, `CSRMetric`, `SumOfCostsAndMakespanMetric` wrappers
-already compute the first four. **Use them** rather than reimplementing; the
-monitors, the deadlock split and message count are ours.
-
-**Do not keep the old `deadlocked_agents` window check alongside `phi_live`.**
-They are the same test; two implementations will disagree on an edge case at the
-worst possible moment. `rho_live <= 0` is the definition now.
-
-Investigate rule failures on solvable fixtures before starting sweeps. Inbox
-membership is diagnostic evidence, not a proof of causation or instance
-feasibility; a no-passing corridor can stall even with global communication.
+**C7 handoff:** `summary()` contains scalar/nested results, while `to_data()`
+contains goals, seed, window, semantic version, frozen rows, intention sidecar,
+and raw environment metrics. Intentions contain decision rows only; the terminal
+row has no broadcast and is excluded from `metrics.intents` and exported data.
+Persist **both** under `outputs/` before aggregation.
+`Metrics.from_data()` handles JSON's string keys and supports offline recomputation
+without POGEMA or a planner. Older raw bundles without a cost-definition field
+can still be loaded; summaries are recomputed using first arrivals, and stale
+terminal intention entries are ignored. Regenerate old summary rows before using
+them in cost comparisons. A saved frozen trace alone can evaluate reach/live/safe
+but cannot reproduce blocker attribution. Serialization/file orchestration,
+matched instances, oracle ratios and statistical plots remain C6/C7/C9 work.
 
 ### C6 — Oracle & floor (Dhanvi)
 
@@ -756,6 +752,12 @@ def oracle_metrics(paths):
 
 ### C7 — Experiment harness (Charitha)
 
+The following is orchestration pseudocode, not an implemented harness. C7 owns
+instance/environment construction (`make_instance`/`build_run`) and file helpers.
+`build_run` must supply a seeded finish-mode environment. The native cost
+wrapper is optional and used only for raw diagnostic comparisons. Use the
+actual planner and recorder calls below; summaries do not contain a `trace` key.
+
 ```python
 # configs live in YAML, NOT in the script
 # experiments/range_sweep.yaml:
@@ -771,14 +773,24 @@ def run_sweep(config_path, out_dir):
         # MATCHED INSTANCES: identical map/starts/goals across topologies.
         # The seed must fix the INSTANCE, independently of the topology.
         instance = make_instance(map_name, n, seed)
-        result = run_episode(instance, topology=topo, ...)
+        env, comm, planner = build_run(instance, topo)
+        metrics = Metrics(planner.goals, seed=seed,
+                          intent_provider=planner.intended_steps)
+        try:
+            result = run_episode(env, comm, PerfectChannel(), planner, metrics,
+                                 max_steps=env.unwrapped.grid_config.max_episode_steps)
+        finally:
+            env.close()
+        # Persist raw evidence before CSV aggregation, including intentions.
+        save_json(f"{out_dir}/traces/{topo}_{n}_{map_name}_{seed}.json",
+                  {'summary': result, 'raw': metrics.to_data()})
+        scalars = {key: value for key, value in result.items()
+                   if not isinstance(value, dict)}
         rows.append({'topology': topo, 'n_agents': n, 'map': map_name,
-                     'seed': seed, **result})
+                     'seed': seed, **scalars})
         # result already carries rho_reach_mean, rho_live_mean, pct_epistemic
         # write incrementally — do not lose 3 hours to a crash at row 900
         append_csv(f"{out_dir}/raw.csv", rows[-1])
-        save_trace(f"{out_dir}/traces/{topo}_{n}_{map_name}_{seed}.parquet",
-                   result.pop('trace'))
     return pd.DataFrame(rows)
 
 def plot_with_errorbars(df, x, y, hue):
@@ -843,7 +855,8 @@ that line up. Do this before the main sweep.
 
 The topology implementations alone do not complete the range/performance curves,
 matched-degree comparison, robustness plots, or message-content extension. Those
-still depend on the planner, recorder/monitors, and experiment harness. Keep
+still need C6/C7/C9 integration and validation; the modules now supply the planner and
+recorder/monitors described above. Keep
 generated traces/results under `outputs/` and complete core validation first.
 
 ### E1 — Packet loss (Ronit)
@@ -953,10 +966,12 @@ epistemic story rather than a separate side-measurement.
 
 ### E6 — Deadlock-freedom proof (Charitha)
 
-**Planner limitation:** a robot can be blocked by another robot even when it
-never yields. A total priority order and global messages alone do not guarantee
-progress in a no-passing corridor. The sketch below remains unproved and needs
-explicit map, feasibility and escape assumptions for the implemented local rule.
+**Planner counterexample to the old sketch:** a robot can be blocked by another robot
+even when it never yields. Perfect knowledge and a total priority order alone do
+not imply that the highest-priority robot advances. The no-passing corridor in
+`tests/test_planner_integration.py` remains stalled with global messages. Treat the
+following as an unproved proposal, not a guarantee; any valid lemma needs stronger
+map/feasibility/escape assumptions and must model the actual local rule.
 
 Paper, not code. One lemma, roughly ten hours.
 
