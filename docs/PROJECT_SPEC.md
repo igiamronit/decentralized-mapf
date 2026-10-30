@@ -40,6 +40,12 @@ N agents on a 2D grid. Each agent has its own start cell and its own goal cell (
 | Formal methods / behavioural guarantees | One proved lemma (deadlock-freedom under bounded delay) |
 | Distributed optimization | Agents locally negotiate a joint outcome none of them can compute alone |
 
+For the current simplified yield baseline, the consensus measurement uses the
+[E5 measurement contract](E5_CONSENSUS_CONTRACT.md): time to mutual current-claim
+receipt, rather than an implemented ACK protocol or guaranteed physical conflict
+clearance. The guide calls this extension E5; the experiment matrix below calls
+it E10. The contract fixes the instrumentation semantics; the tracker is pending.
+
 ---
 
 ## 2. CRITICAL TERMINOLOGY — DO NOT CONFLATE THESE

@@ -183,6 +183,13 @@ and multi-robot cycles may still stall. The centralized oracle, experiment
 harness and statistical comparisons remain integration dependencies.
 See the [planner contract](docs/TEAM_BUILD_GUIDE.md#planner) for the exact rule.
 
+E5's [measurement contract](docs/E5_CONSENSUS_CONTRACT.md) defines one round as
+one decision timestep and agreement as both conflicting agents receiving each
+other's current claims. It fixes episode boundaries, zero-based elapsed timing,
+missing-agreement reporting and verification criteria. Physical conflict
+clearance is separate. The E5 tracker and trace-sidecar integration remain
+pending; this documents the handoff without changing planner behavior.
+
 ## Metrics and monitors
 
 The planner and metrics modules work through the shared runner. This small deterministic

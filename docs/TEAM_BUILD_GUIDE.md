@@ -937,32 +937,24 @@ Exclude failed robots from the success-rate denominator, and say so.
 
 ### E5 — Consensus framing (Dhanvi)
 
-No new algorithm — instrument Harsh's existing yield rule.
+No new algorithm — instrument Harsh's existing yield rule. The authoritative
+[E5 measurement contract](E5_CONSENSUS_CONTRACT.md) fixes the definition and
+implementation acceptance criteria. Instrumentation remains pending.
 
-```python
-# inside the yield rule, count how many message rounds pass between a
-# conflict first appearing and it being resolved
-class ConsensusTracker:
-    def on_conflict_detected(self, agents, cell, t):
-        self.open_conflicts[(frozenset(agents), cell)] = t
+One round is one nonterminal runner timestep. Agreement means the first round
+of a pair's conflict episode where both agents receive each other's
+**current-round pre-decision claims**. Report this as **time to mutual claim
+receipt**, an operational measure of §3.5's time-to-mutual-knowledge framing.
+It is not an ACK protocol, common knowledge, or physical conflict clearance.
+Elapsed rounds are `t_agreement - t_start`; same-round receipt is 0.
 
-    def on_conflict_resolved(self, agents, cell, t):
-        start = self.open_conflicts.pop((frozenset(agents), cell))
-        self.rounds.append(t - start)
-
-    def summary(self):
-        return {'mean_rounds_to_agreement': mean(self.rounds),
-                'max_rounds': max(self.rounds)}
-```
-
-Then plot rounds-to-agreement against communication quality (range, loss rate).
-Frame in the report as a **local consensus protocol** — this is a course
-syllabus pillar the rest of the project does not touch.
-
-`mean_rounds_to_agreement` is **time-to-mutual-knowledge** in the §3.5 frame:
-how many steps pass before both agents in a conflict hold each other's claim.
-Label it that way and this extension becomes the quantitative half of the
-epistemic story rather than a separate side-measurement.
+The old conflict-detected/resolved sketch conflated receipt with clearance and
+overwrote the start on repeated detection. Follow the linked contract instead:
+detect pairwise conflicts independently of delivery, preserve episode starts,
+count each agreement once, and report missing agreements and coverage alongside
+successful-sample mean/max. Plot these against communication quality (range,
+loss rate), with the operational definition stated in the report. Keep the
+planner, messages, frozen interfaces, and observation settings unchanged.
 
 ### E6 — Deadlock-freedom proof (Charitha)
 
