@@ -579,57 +579,70 @@ class PerfectChannel(Channel):
         return messages          # everything arrives, unchanged
 ```
 
-### C4 — Planner (Harsh)
+### Planner
+
+**Implemented:** `planner.py` exports `IndependentAStar` and `DCMAPFPlanner`;
+`pathfinding.py` supplies their shared deterministic A*. Both use the frozen
+`Planner` interface and the existing runner. See README for a usage example.
 
 ```python
-class DCMAPFPlanner(Planner):
-    def __init__(self, grid_map, goals):
-        self.paths = {}          # agent_id -> remaining planned path
-
-    def compose(self, agent_id, t):
-        return Message(sender=agent_id,
-                       position=self.pos[agent_id],
-                       goal=self.goals[agent_id],
-                       next_cells=self.paths[agent_id][:3],
-                       sent_at=t)
-
-    def act(self, agent_id, observation, inbox, goal):
-        # 1. plan alone if we have no path (plain A*, ignore everyone)
-        if not self.paths.get(agent_id):
-            self.paths[agent_id] = astar(self.pos[agent_id], goal, self.map)
-
-        my_next = self.paths[agent_id][0]
-
-        # 2. look at what neighbours told us. EMPTY INBOX IS VALID.
-        claimed = {}
-        for m in inbox:
-            if m.next_cells:
-                claimed[m.next_cells[0]] = m.sender
-
-        # 3. yield rule: on conflict, lower priority waits
-        if my_next in claimed:
-            other = claimed[my_next]
-            if not self.has_priority(agent_id, other):
-                return WAIT
-            # else proceed, they will yield
-
-        self.paths[agent_id].pop(0)
-        return action_towards(self.pos[agent_id], my_next)
-
-    def has_priority(self, me, other):
-        # deterministic and antisymmetric, or you get deadlock or collision.
-        # simplest: lower index wins. better: further-from-goal wins,
-        # tie-broken by index.
-        return me < other
+planner = DCMAPFPlanner(grid_map, goals, moves=env.unwrapped.grid_config.MOVES)
 ```
 
-**The priority rule must be deterministic and antisymmetric.** If both robots
-think they have priority you lose the guarantee; if neither does, they deadlock.
+The borderless static obstacle map is known a priori (zero means free). Goals use
+stable robot ID order. This assumption is fixed across topologies; global robot
+state is never passed to `act()`. Own state arrives through `observe()`, and other
+robots are known only through delivered messages. The start-relative observation
+is never mistaken for a map-relative coordinate.
+
+`observe()` prepares a static-map path **before** `compose()` broadcasts up to
+three intended cells. A path step is removed only when the next observation
+confirms movement; a simulator-rejected action leaves the step intact. Broadcasts
+are snapshots of pre-coordination intentions, not promises of executed moves.
+`reset()` clears paths, positions, timestamps and yield state between runs.
+
+The local rule is deterministic, independent of inbox order:
+
+1. If two robots claim an empty cell, the lower ID has priority; the other waits.
+2. A currently occupied next cell blocks movement if its occupant stays or
+   attempts a head-on swap. A claim to vacate elsewhere allows following.
+3. On a swap, the lower-priority robot tries A* around received occupied/claimed
+   cells. If that fails, breadth-first search finds the nearest refuge outside
+   the head-on row or column; reaching it can require retreat along the corridor.
+   Occupied cells and immediate claims from the inbox block the search. The peer's
+   later advertised cells cannot be refuge destinations. Equal-length escapes
+   use the shared row/column neighbour order. The refuge target persists across
+   observations, including rejected moves. The robot waits there until a goal
+   route opens or the peer leaves its inbox; there is no distance-based release.
+   Avoidance never reads other robots' caches.
+4. No inbox means independent A*. Only messages stamped with the current decision
+   time affect coordination; a policy for delayed messages remains pending.
+
+`has_priority(me, other)` defines the strict order. The pure helper
+`blocking_neighbour(agent_id, position, next_cell, neighbours)` is shared by local
+yielding and offline diagnostics. `intended_steps()` returns a copied mapping for
+metrics instrumentation; it never feeds other robots' private state into decisions.
+
+**Scope and limitation:** this is the guide's simplified A* plus local yield
+baseline, with a local refuge search. It is not a verified reproduction of the
+full Maoudj/Christensen algorithm, a complete MAPF solver, or a proof of deadlock
+freedom. A no-passing corridor can remain blocked under perfect global messages;
+multi-robot cycles and necessary long detours also need characterization. Do not
+claim paper-level success rates or start C9 sweeps without investigating rule
+failures on solvable cases. Dhanvi's E5 can instrument this rule; Charitha's E6
+must account for occupancy, sidesteps, and graph assumptions explicitly.
 
 ### C5 — Spec monitors, deadlock detector & metrics (Harsh)
 
 Two files. `Metrics` only *records*; every property is evaluated afterwards in
 `monitors.py`. Read §3.5 first — the formulas there are what this implements.
+
+Blocker diagnosis also needs pre-decision intentions from
+`planner.intended_steps()`, saved separately as `{t: {agent_id: next_cell}}`.
+The frozen `StepRecord` and recorder signature stay unchanged. The helper takes
+four arguments: agent ID, own position, own intended cell, and neighbour messages.
+A frozen trace alone cannot reconstruct these claims; absent evidence must remain
+unattributed. The monitor pseudocode below illustrates this handoff.
 
 ```python
 class Metrics:
@@ -671,15 +684,25 @@ def deadlocked_agents(trace, goals, W=10):
             if rho_live(trace, i, goals, W) <= 0
             and rho_reach(trace, i, goals) < 0}
 
-def deadlock_causes(trace, goals, W=10):
-    """§3.5 epistemic split, at the step each stall begins."""
+def deadlock_causes(trace, goals, W=10, *, intents=None):
     out = {}
     for i in deadlocked_agents(trace, goals, W):
-        rec = stall_start(trace, i, goals, W)
-        blocker = blocking_neighbour(rec, i)         # from C4's yield logic
-        out[i] = ('epistemic' if blocker not in rec.inbox_senders[i]
-                  else 'rule_failure')
+        rec = trace[stall_start(trace, i, goals, W)]
+        claims = (intents or {}).get(rec.t, {})
+        next_cell = claims.get(i)
+        if next_cell is None or tuple(next_cell) == tuple(rec.positions[i]):
+            out[i] = 'unattributed'
+            continue
+        neighbours = [Message(j, rec.positions[j], goals[j], [tuple(cell)],
+                              sent_at=rec.t)
+                      for j, cell in claims.items() if j != i
+                      and tuple(rec.positions[j]) != tuple(goals[j])]
+        blocker = blocking_neighbour(i, tuple(rec.positions[i]),
+                                     tuple(next_cell), neighbours)
+        out[i] = ('unattributed' if blocker is None else
+                  'rule_failure' if blocker in rec.inbox_senders[i] else 'epistemic')
     return out
+
 ```
 
 ```python
@@ -708,9 +731,9 @@ monitors, the deadlock split and message count are ours.
 They are the same test; two implementations will disagree on an edge case at the
 worst possible moment. `rho_live <= 0` is the definition now.
 
-**Any `rule_failure` in `deadlock_causes` is a C4 bug, not a result.** Chase
-those to zero before the sweeps start, or the headline finding is contaminated by
-planner defects.
+Investigate rule failures on solvable fixtures before starting sweeps. Inbox
+membership is diagnostic evidence, not a proof of causation or instance
+feasibility; a no-passing corridor can stall even with global communication.
 
 ### C6 — Oracle & floor (Dhanvi)
 
@@ -929,6 +952,11 @@ Label it that way and this extension becomes the quantitative half of the
 epistemic story rather than a separate side-measurement.
 
 ### E6 — Deadlock-freedom proof (Charitha)
+
+**Planner limitation:** a robot can be blocked by another robot even when it
+never yields. A total priority order and global messages alone do not guarantee
+progress in a no-passing corridor. The sketch below remains unproved and needs
+explicit map, feasibility and escape assumptions for the implemented local rule.
 
 Paper, not code. One lemma, roughly ten hours.
 

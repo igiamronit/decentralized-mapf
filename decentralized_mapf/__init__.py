@@ -9,8 +9,10 @@ from .communication import (
 )
 from .channels import PerfectChannel
 from .runner import run_episode
+from .planner import DCMAPFPlanner, IndependentAStar
 
 __all__ = [
     "Message", "StepRecord", "CommunicationModel", "Channel", "Planner",
     "GlobalCommunication", "NoCommunication", "PerfectChannel", "run_episode", "RangeCommunication", "KNNCommunication",
+    "DCMAPFPlanner", "IndependentAStar",
 ]

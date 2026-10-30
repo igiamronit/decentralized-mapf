@@ -11,10 +11,11 @@ centralized comparison baseline.
 ## Current status
 
 Environment verification, shared interfaces, all four core communication models
-(global, none, range, k-nearest), the perfect channel, and episode runner are implemented. See
+(global, none, range, k-nearest), the perfect channel, episode runner, and
+planners are implemented. See
 [environment verification results](docs/ENVIRONMENT_CHECK_RESULTS.md).
 
-The team's planner, metrics/monitors, LaCAM3 integration, and experiment harness
+The metrics/monitors, LaCAM3 integration, and experiment harness
 remain to be integrated. The oracle/global/none comparison and topology sweeps
 await those dependencies; matched-degree calibration and experimental results
 are still pending. Loss/delay extensions follow core validation.
@@ -31,11 +32,15 @@ decentralized_mapf/
   communication.py           Global, none, range, k-nearest models and shared graph statistics
   channels.py                Perfect channel; inherits the base pass-through behavior
   runner.py                  Pluggable POGEMA episode loop and per-recipient routing
+  pathfinding.py             Shared deterministic static-map A*
+  planner.py                 IndependentAStar and DCMAPFPlanner with local yielding
   __init__.py                Public imports for project modules
 tests/
   test_communication.py       Communication links and directed-graph statistics checks
   test_topologies.py          Range/k-nearest behavior, limits, and deterministic tie-breaking
   test_runner.py              Real POGEMA integration with test-only planners and channels
+  test_planner.py             Pathfinding, broadcasts and local yield decisions
+  test_planner_integration.py Planner episodes, retreat, waiting and reset
 docs/
   TEAM_BUILD_GUIDE.md          Team assignments, frozen interfaces, implementation guide
   PROJECT_SPEC.md              Research question, experiment plan, references
@@ -142,6 +147,38 @@ The runner records initial through final states and returns the recorder's summa
 See the guide and `runner.py` for callback order, trace semantics, and finished-robot
 handling. The calling experiment code owns configuration and environment cleanup.
 
+## Planner
+
+`IndependentAStar` follows a shortest static-map path and ignores messages.
+`DCMAPFPlanner` uses the same pathfinding helper and resolves local conflicts from
+its inbox: lower IDs win cell contention, while a lower-priority robot attempts a
+detour or a retreat into a side pocket on a head-on swap. Both assume prior knowledge of the
+static obstacle map and use map-relative row/column coordinates.
+
+```python
+from decentralized_mapf import DCMAPFPlanner
+
+planner = DCMAPFPlanner(grid_map=[[0, 0, 0]], goals=[(0, 2)])
+planner.observe(0, observation={}, position=(0, 0), goal=(0, 2))
+message = planner.compose(0, t=0)
+action = planner.act(0, observation={}, inbox=[], goal=(0, 2))
+```
+
+For an episode, pass the planner to `run_episode` with the chosen communication
+model, channel and a compatible recorder. Supply `moves=config.MOVES` if the
+POGEMA action ordering is customized. The runner calls `observe()` before every
+broadcast; paths advance only after the next observed position confirms a move.
+No communication gives independent A* behavior without changing planners.
+When yielding, a robot can retreat along a corridor to reach an off-axis
+pocket. It keeps that refuge until its goal route is clear or the peer is no
+longer heard. Only received positions and claims constrain the escape search.
+
+This is a simplified A* plus local yield baseline, not a validated reproduction
+of the full published algorithm or a complete MAPF solver. Narrow bottlenecks
+and multi-robot cycles may still stall. The metrics suite, centralized oracle,
+experiment harness and statistical comparisons remain integration dependencies.
+See the [planner contract](docs/TEAM_BUILD_GUIDE.md#planner) for the exact rule.
+
 ## Validation
 
 From the repository root with the environment activated:
@@ -150,11 +187,12 @@ From the repository root with the environment activated:
 python -m unittest discover -s tests -v
 ```
 
-The last code validation passed all 34 tests, covering graph statistics,
-range/k-nearest behavior, and real POGEMA runner integration, including routing,
-drops/delays, reset, stopping behavior, and k-NN reselection after a robot finishes.
-Fake planners and imperfect channels exist only in tests. Robot-coordination
-performance remains unvalidated until the real team modules are integrated.
+All 53 tests pass with Python 3.13.12 and the pinned POGEMA revision. The suite
+includes the existing communication/runner checks, 13 planner unit tests, and six
+planner episode tests using real POGEMA and the existing test recorder. Episodes
+cover retreat into nearby and more distant pockets, vertical/reversed corridors,
+waiting for a peer to pass, reset, and expected stalls without messages or passing
+space. These are correctness checks, not experimental performance results.
 
 ## Run the existing scripts
 
@@ -170,7 +208,7 @@ The verifier replaces the old smoke-test and collision scripts. It runs all six
 C1 checks, prints PASS/FAIL, writes raw evidence to
 `outputs/verification/environment.json`, and exits nonzero if any check fails.
 Use `--seed 42` to change its seed or `--output <path>` to save another result.
-The 100-agent timing uses random actions, not the future decentralized planner.
+The verifier's 100-agent timing uses random actions, not `DCMAPFPlanner`.
 
 The animation demo writes `outputs/renders/demo.svg` and
 `outputs/renders/demo.html`. The topology demo writes

@@ -155,6 +155,13 @@ class Planner:
 | `PriorityYield` | 🟢 | Simple tie-break rule used inside DCMAPF: on conflict, lower-priority agent waits or sidesteps. Priority = agent index, or distance-to-goal, or negotiated. |
 | `LearnedGating` | 🔴 | Small learned function deciding which neighbours to listen to |
 
+**Planner implementation:** `planner.py` now supplies the two baseline classes through
+the frozen runner interface, assuming a known static obstacle map. The primary
+planner is the team guide's simplified A* plus priority/yield design with local
+detour/refuge handling, not a validated reproduction of the full published
+algorithm. It is incomplete and has no unconditional deadlock-freedom guarantee.
+See the guide's planner handoff for the exact rule and its occupancy counterexample.
+
 ### 3.3 `FailureModel` 🟡 (interface 🟢)
 
 Corrupts the message stream. **The empty/no-op version is GREEN** — the interface must exist from week 1 so that adding failures later requires no refactor. The actual failure modes are amber.
