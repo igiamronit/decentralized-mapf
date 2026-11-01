@@ -19,7 +19,9 @@ The implementation is in `decentralized_mapf/oracle/`:
 - `validation.py` validates the input problem and returned paths, including coordinate validity, obstacles, legal transitions, vertex collisions, and edge swaps.
 - `metrics.py` calculates makespan, sum of costs (SoC), and the decentralized-to-oracle SoC ratio.
 
-A separate smoke test has successfully invoked the actual Windows LaCAM3 executable and returned valid paths with makespan 4 and SoC 8.
+An earlier smoke test successfully invoked the actual Windows LaCAM3 executable.
+That run predates the first-arrival cost corrections; it does not verify the
+current cost calculation against the executable.
 
 These checks establish implementation and correctness on the tested fixtures; they are not experimental performance results.
 
@@ -242,6 +244,9 @@ first-arrival timestep; SoC is their sum. This matches the decentralized
 Waiting before arrival counts; waiting or movement after first arrival does not.
 The optional `positions` convention also counts the initial sample.
 
+For example, arrivals at steps 1 and 4 give makespan 4 and SoC 5, regardless of
+trailing waits in the returned paths.
+
 These are the project's finish-mode comparison costs. When LaCAM3 moves a robot
 away from an already-visited goal, its native stay-at-goal cost can differ; the
 reported project costs do not establish optimality for POGEMA's finish semantics.
@@ -327,7 +332,7 @@ The test suite covers the communication models, episode runner, planner unit and
 
 Planner episodes cover adjacent and more distant packets, horizontal and vertical corridors, waiting for a peer to pass, no-message stalls, and reset. Metrics checks cover analytic robustness traces, staggered and initial-goal arrivals, terminal intention filtering, native diagnostics, and JSON persistence. Planner episode tests use the existing test recorder and do not depend on the metrics module.
 
-The C6 tests cover malformed inputs and paths, coordinate conversion, collision and transition validation, metric calculations, parser failure cases, invalid timeouts, and adapter failure handling. A separate smoke test has successfully invoked the actual Windows LaCAM3 executable and returned valid paths with makespan 4 and SoC 8.
+The C6 tests cover malformed inputs and paths, coordinate conversion, collision and transition validation, metric calculations, parser failure cases, invalid timeouts, and adapter failure handling.
 
 Oracle regressions also cover padded waits, valid goal departures/revisits, and
 rejection of invalid movement after a first goal visit. Adapter tests use stub
