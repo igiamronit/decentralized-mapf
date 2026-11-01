@@ -1,6 +1,6 @@
 
 from pathlib import Path
-
+from decentralized_mapf.oracle.metrics import oracle_metrics
 import pytest
 import decentralized_mapf.oracle.lacam_adapter as adapter
 
@@ -204,3 +204,30 @@ def test_probe_binary_resolves_relative_environment_path(
     result = adapter._probe_binary()
 
     assert result == binary.resolve()
+    
+def test_parse_result_truncates_paths_at_individual_goal_arrival():
+    result = """solved=1
+solution=
+0:(0,0),(0,1),(0,2),(0,3),
+1:(1,0),(1,1),(1,2),(1,3),
+2:(2,0),(2,1),(2,2),(2,3),
+3:(2,0),(2,1),(2,2),(3,3),
+4:(2,0),(2,1),(2,2),(4,3),
+5:(2,0),(2,1),(2,2),(5,3),
+6:(2,0),(2,1),(2,2),(6,3),
+7:(2,0),(2,1),(2,2),(7,3),
+8:(2,0),(2,1),(2,2),(8,3),
+9:(2,0),(2,1),(2,2),(9,3),
+10:(2,0),(2,1),(2,2),(10,3),
+"""
+
+    goals = [(0, 2), (1, 2), (2, 2), (3, 10)]
+
+    paths = _parse_result(result, 4, goals)
+
+    assert [len(path) - 1 for path in paths] == [2, 2, 2, 10]
+
+    assert oracle_metrics(paths) == {
+        "makespan": 10,
+        "SoC": 16,
+    }

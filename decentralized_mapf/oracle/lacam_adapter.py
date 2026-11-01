@@ -126,7 +126,11 @@ def _write_scen_file(
 
 
 
-def _parse_result(result_text: str, n_agents: int) -> Paths:
+def _parse_result(
+    result_text: str, 
+    n_agents: int,
+    goals: list[Position] | None = None,
+    ) -> Paths:
     """Parse LaCAM3 result output and convert (x,y) to (row,col)."""
 
     if not isinstance(result_text, str):
@@ -230,6 +234,28 @@ def _parse_result(result_text: str, n_agents: int) -> Paths:
         for agent_id, position in enumerate(positions_by_t[t]):
             paths[agent_id].append(position)
 
+    if goals is not None:
+        if len(goals) != n_agents:
+            raise _OracleError(
+                "Number of goals does not match the agent count."
+            )
+
+        truncated_paths = []
+
+        for agent_id, (path, goal) in enumerate(zip(paths, goals)):
+            goal = tuple(goal)
+
+            try:
+                arrival_t = path.index(goal)
+            except ValueError as exc:
+                raise _OracleError(
+                    f"Agent {agent_id} never reaches its goal {goal}."
+                ) from exc
+
+            truncated_paths.append(path[:arrival_t + 1])
+
+        paths = truncated_paths
+
     return paths
 
 
@@ -296,7 +322,7 @@ def _solve_via_binary(
             errors="replace",
         )
 
-        return _parse_result(result_text, len(starts))
+        return _parse_result(result_text, len(starts), goals)
 
 
 
