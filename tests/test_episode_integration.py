@@ -99,6 +99,14 @@ class EpisodeIntegrationTests(unittest.TestCase):
         self.assertEqual(result["n_epistemic"], 0)
         self.assertGreaterEqual(result["rho_safe"], 0)
 
+         # Mutual claim receipt does not imply physical conflict resolution.
+        self.assertEqual(result["e5"]["n_conflicts"], 1)
+        self.assertEqual(result["e5"]["n_agreed"], 1)
+        self.assertEqual(result["e5"]["agreement_coverage"], 1.0)
+        self.assertEqual(result["e5"]["mean_rounds_to_agreement"], 0)
+        self.assertEqual(result["e5"]["episodes"][0]["outcome"], "agreed")
+        self.assertIsNone(result["e5"]["episodes"][0]["ended_at"])
+
     def test_all_topologies_use_the_same_planner_and_seeded_initial_state(self):
         states = []
         for comm in (GlobalCommunication(), NoCommunication(), RangeCommunication(0),
@@ -120,6 +128,7 @@ class EpisodeIntegrationTests(unittest.TestCase):
                 self.assertIsNone(result["SoC"])
                 self.assertIsNone(result["rho_live_mean"])
                 self.assertEqual(len(metrics.trace), limit + 1)
+                self.assertEqual(len(metrics.e5.rounds), limit)
                 self.assertNotIn(limit, metrics.intents)
                 self.assertNotIn(limit, metrics.to_data()["intents"])
 
@@ -133,6 +142,70 @@ class EpisodeIntegrationTests(unittest.TestCase):
                                planner, next_metrics, 20)
         self.assertEqual(repeated, result)
         self.assertEqual(next_metrics.trace, metrics.trace)
+
+    def test_e5_instrumentation_does_not_change_trajectory(self):
+        # Reference run: E5 instrumentation enabled.
+        result_a, metrics_a, _, _ = self.episode()
+
+        # Second run: same environment and seed, but hide the optional E5 hooks.
+        class MetricsWithoutE5:
+            def __init__(self, recorder):
+                self.recorder = recorder
+
+            def __getattr__(self, name):
+                if name in ("capture_e5_round", "finalize_e5"):
+                    raise AttributeError(name)
+                return getattr(self.recorder, name)
+
+        starts = [[0, 1], [0, 2]]
+        goals = [[0, 4], [0, 0]]
+
+        config = GridConfig(
+            map=".....\n.....",
+            agents_xy=starts,
+            targets_xy=goals,
+            num_agents=2,
+            obs_radius=2,
+            seed=7,
+            max_episode_steps=20,
+            observation_type="POMAPF",
+            on_target="finish",
+            collision_system="priority",
+            integration=None,
+        )
+        env = pogema_v0(grid_config=config)
+        self.addCleanup(env.close)
+        env.reset(seed=7)
+
+        fixed_goals = env.unwrapped.get_targets_xy(ignore_borders=True)
+        planner = DCMAPFPlanner(
+        env.unwrapped.get_obstacles(ignore_borders=True),
+        fixed_goals,
+        moves=config.MOVES,
+    )
+        recorder = Metrics(
+        fixed_goals,
+        seed=7,
+        window=3,
+        intent_provider=planner.intended_steps,
+    )
+
+        result_b = run_episode(
+        env,
+        GlobalCommunication(),
+        PerfectChannel(),
+        planner,
+        MetricsWithoutE5(recorder),
+        max_steps=20,
+    )
+
+        self.assertEqual(
+        [row.positions for row in metrics_a.trace],
+        [row.positions for row in recorder.trace],
+    )
+        self.assertEqual(result_a["CSR"], result_b["CSR"])
+        self.assertEqual(result_a["ISR"], result_b["ISR"])
+        self.assertEqual(result_a["steps"], result_b["steps"])
 
 
 if __name__ == "__main__":
