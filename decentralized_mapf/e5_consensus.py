@@ -1,7 +1,8 @@
 
-"""Offline measurement of mutual current-round claim receipt (E5)."""
+"""Passive tracking of mutual current-round claim receipt (E5)."""
 
 from collections import defaultdict
+from collections.abc import Mapping
 from copy import deepcopy
 
 
@@ -96,7 +97,8 @@ class ConsensusTracker:
     def record_round(self, t, positions, active, broadcasts, inboxes):
         """Record claims and actual delivered inbox messages for one round.
 
-        positions: {agent_id: (row, column)} pre-decision positions.
+        positions: {agent_id: (row, column)} or an ID-indexed position list.
+        Mapping IDs may be nonconsecutive; finished robots need not be included.
         active: iterable of active agent IDs.
         broadcasts: {agent_id: Message} pre-recipient broadcasts.
         inboxes: {receiver_id: [Message, ...]} after channel delivery.
@@ -108,6 +110,8 @@ class ConsensusTracker:
         if self._last_t is not None and t != self._last_t + 1:
             raise ValueError("Decision rounds must have contiguous timestamps")
 
+        if not isinstance(positions, Mapping):
+            positions = dict(enumerate(positions))
         active_ids = set(active)
         if not set(broadcasts).issubset(active_ids):
             raise ValueError("A broadcast sender is not active")
@@ -117,7 +121,7 @@ class ConsensusTracker:
             isinstance(i, bool)
             or not isinstance(i, int)
             or i < 0
-            or i >= len(positions)
+            or i not in positions
             for i in broadcasts
         ):
             raise ValueError("A broadcast sender has no position snapshot")

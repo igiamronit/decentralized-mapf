@@ -33,6 +33,9 @@ def run_episode(env, comm: CommunicationModel, channel: Channel,
     metrics after reset/step; it only copies data, never evaluates specifications.
     Older recorders without this hook retain their original behavior.
 
+    Optional capture_e5_round/finalize_e5 hooks observe deliveries before actions
+    and close the tracker at the final timestamp; they do not steer the planner.
+
     Planner.reset() clears episode state; observe() receives each active robot's
     current observation and own map-relative position/goal before any compose().
     The runner never constructs a planner, changes sensing settings, or closes
@@ -92,7 +95,7 @@ def run_episode(env, comm: CommunicationModel, channel: Channel,
                 inboxes[message.recipient].append(message)
                 arrived.append(message)
 
-# Capture exactly once per decision round, after all deliveries.
+        # Capture exactly once per decision round, after all deliveries.
         if capture_e5_round is not None:
             active_ids = [
                 i for i, is_active in enumerate(active) if is_active
@@ -103,8 +106,7 @@ def run_episode(env, comm: CommunicationModel, channel: Channel,
                 active=active_ids,
                 broadcasts=outbox,
                 inboxes=inboxes,
-    )
-
+            )
 
         metrics.record(t, positions, stats, arrived, inboxes)
         actions = [

@@ -210,6 +210,39 @@ class TestE5Consensus(unittest.TestCase):
         self.assertEqual(result["n_ended_without_agreement"], 1)
         self.assertEqual(result["n_censored"], 0)
 
+    def test_sparse_ids_remain_original_ids(self):
+        self.round_data(0, {
+            2: message(2, (0, 0), [(0, 1)], 0),
+            7: message(7, (0, 2), [(0, 1)], 0),
+        }, {
+            2: [message(7, (0, 2), [(0, 1)], 0, recipient=2)],
+            7: [message(2, (0, 0), [(0, 1)], 0, recipient=7)],
+        })
+        self.tracker.finalize(1)
+        result = self.tracker.summary()
+        self.assertEqual(result["n_agreed"], 1)
+        self.assertEqual(result["episodes"][0]["agents"], [2, 7])
+
+    def test_lower_id_becoming_inactive_does_not_renumber_survivor(self):
+        self.round_data(0, {
+            0: message(0, (0, 0), [(0, 1)], 0),
+            1: message(1, (0, 2), [(0, 1)], 0),
+        })
+        self.round_data(1, {1: message(1, (0, 2), [(0, 1)], 1)})
+        self.tracker.finalize(2)
+        result = self.tracker.summary()
+        self.assertEqual(result["n_ended_without_agreement"], 1)
+        self.assertEqual(self.tracker.rounds[-1]["active"], [1])
+
+    def test_missing_position_is_reported_for_dict_and_list_inputs(self):
+        for positions in ({7: (0, 2)}, [(0, 2)]):
+            with self.subTest(positions=positions), self.assertRaisesRegex(
+                ValueError, "position snapshot"
+            ):
+                self.tracker.record_round(
+                    0, positions, {2}, {2: message(2, (0, 0), [(0, 1)], 0)}, {}
+                )
+
     def test_head_on_swap_is_a_conflict(self):
         self.round_data(0, {
             0: message(0, (0, 0), [(0, 1)], 0),

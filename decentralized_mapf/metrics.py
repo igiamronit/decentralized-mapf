@@ -1,4 +1,4 @@
-"""Trace recording and post-episode summaries; no online property evaluation."""
+"""Trace recording, optional passive E5 tracking, and offline spec summaries."""
 
 from copy import deepcopy
 from dataclasses import asdict
@@ -23,9 +23,11 @@ class Metrics:
     summary() evaluates monitors only after the run. to_data() provides a JSON
     serializable raw bundle, including intentions required for reproducible
     diagnosis; writing files and aggregation belong to the experiment harness.
+    E5 is disabled unless a fresh consensus_tracker is supplied explicitly.
     """
 
-    def __init__(self, goals, *, seed, window=10, intent_provider=None):
+    def __init__(self, goals, *, seed, window=10, intent_provider=None,
+                 consensus_tracker=None):
         if isinstance(seed, bool) or not isinstance(seed, int):
             raise ValueError("seed must be an integer")
         if isinstance(window, bool) or not isinstance(window, int) or window < 1:
@@ -35,7 +37,7 @@ class Metrics:
             raise ValueError("At least one goal is required")
         self.seed, self.window, self.intent_provider = seed, window, intent_provider
         self.trace, self._intents, self.environment_metrics = [], {}, {}
-        self.e5 = ConsensusTracker()
+        self.e5 = consensus_tracker
 
     @property
     def intents(self):
@@ -74,17 +76,13 @@ class Metrics:
 
     def capture_e5_round(self, t, positions, active, broadcasts, inboxes):
         """Capture E5 claims and actual deliveries before planner actions."""
-        self.e5.record_round(
-            t=t,
-            positions=positions,
-            active=active,
-            broadcasts=broadcasts,
-            inboxes=inboxes,
-        )
+        if self.e5 is not None:
+            self.e5.record_round(t, positions, active, broadcasts, inboxes)
 
     def finalize_e5(self, terminal_t):
         """Finalize E5 episodes at the terminal trace timestamp."""
-        self.e5.finalize(terminal_t)
+        if self.e5 is not None:
+            self.e5.finalize(terminal_t)
 
     def summary(self):
         """Offline results, preserving unknowns and costs only for solved runs.
@@ -134,7 +132,7 @@ class Metrics:
             "mean_degree": mean(row.mean_degree for row in decision_rows) if steps else None,
             "mean_components": mean(row.n_components for row in decision_rows) if steps else None,
             "environment_metrics": deepcopy(self.environment_metrics),
-            "e5": self.e5.summary() if self.e5._finalized else None,
+            "e5": self.e5.summary() if self.e5 is not None and self.e5._finalized else None,
         }
 
     def to_data(self):
@@ -145,7 +143,7 @@ class Metrics:
                 "trace": [asdict(row) for row in self.trace],
                 "intents": deepcopy(self.intents),
                 "environment_metrics": deepcopy(self.environment_metrics),
-                "e5": self.e5.to_data() if self.e5._finalized else None}
+                "e5": self.e5.to_data() if self.e5 is not None and self.e5._finalized else None}
 
     @classmethod
     def from_data(cls, data):

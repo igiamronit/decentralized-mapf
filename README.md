@@ -41,6 +41,7 @@ pathfinding.py          Shared deterministic static-map A*
 planner.py              IndependentAStar and DCMAPFPlanner with local yielding
 metrics.py              Trace recorder, POGEMA metric capture, raw bundle export
 monitors.py             Offline reachability, liveness, safety and stall diagnosis
+e5_consensus.py         Optional mutual current-claim receipt tracker
 oracle/
     __init__.py         Public oracle exports
     lacam_adapter.py    LaCAM3 executable adapter and MovingAI conversion
@@ -55,6 +56,7 @@ tests/
     test_planner.py             Pathfinding, broadcasts and local yield decisions
     test_planner_integration.py Planner episodes, retreat, waiting and reset
     test_metrics.py             Analytic monitor traces and JSON persistence
+    test_e5_consensus.py        Pairwise receipt episodes, sparse IDs, and saved evidence
     test_episode_integration.py Real POGEMA episodes with planner and metrics modules
     test_lacam_adapter.py       LaCAM3 adapter, parser, timeout and failure handling
     test_oracle_metrics.py      Oracle metric calculations
@@ -260,13 +262,6 @@ and multi-robot cycles may still stall. The centralized oracle, experiment
 harness and statistical comparisons remain integration dependencies.
 See the [planner contract](docs/TEAM_BUILD_GUIDE.md#planner) for the exact rule.
 
-E5's [measurement contract](docs/E5_CONSENSUS_CONTRACT.md) defines one round as
-one decision timestep and agreement as both conflicting agents receiving each
-other's current claims. It fixes episode boundaries, zero-based elapsed timing,
-missing-agreement reporting and verification criteria. Physical conflict
-clearance is separate. The E5 tracker and trace-sidecar integration remain
-pending; this documents the handoff without changing planner behavior.
-
 ## Metrics and monitors
 
 The planner and metrics modules work through the shared runner. This small deterministic
@@ -320,11 +315,34 @@ See the [metrics contract](docs/TEAM_BUILD_GUIDE.md#metrics-and-monitors) for
 window semantics, blocker evidence and the cost definition. Oracle integration
 and statistical sweeps remain pending.
 
+## Optional E5 tracking
+
+`ConsensusTracker` measures time to mutual current-claim receipt, not physical
+conflict clearance. It is disabled by default. After core validation, supply a
+fresh tracker to a fresh recorder when running E5 experiments:
+
+```python
+from decentralized_mapf import Metrics
+from decentralized_mapf.e5_consensus import ConsensusTracker
+
+metrics = Metrics(goals, seed=seed, intent_provider=planner.intended_steps,
+                  consensus_tracker=ConsensusTracker())
+```
+
+The existing runner captures one decision round after delivery and finalizes at
+the terminal state. Summary/raw bundles contain `e5` results and claim/delivery
+evidence, or `None` when disabled. `Metrics.from_data()` restores saved E5 data
+and accepts older bundles without it. See the [measurement contract](docs/E5_CONSENSUS_CONTRACT.md)
+for episode and timing rules. Core experiments keep tracking disabled; the
+tracker's tests do not replace the required core comparison or E5 sweeps.
+
 ## Validation
 
 From the repository root with the Python 3.13 environment activated:
 
 ```powershell
+# Install the test runner once in the activated environment.
+python -m pip install pytest
 python -m pytest -q -p no:cacheprovider
 ```
 

@@ -1,7 +1,7 @@
 # E5 measurement contract: time to mutual claim receipt
 
 This defines Dhanvi's E5 instrumentation of Harsh's existing planner. The
-definition is fixed here; the tracker and its integration are still pending.
+definition is fixed here; the tracker and optional recorder hooks are implemented.
 Read `TEAM_BUILD_GUIDE.md` and `PROJECT_SPEC.md` first. E5 is an extension after
 core validation. The specification calls this experiment E10; its experiment
 numbers differ from the guide's extension numbers.
@@ -94,12 +94,23 @@ outcome and duration for reproducibility. Use definition version
 
 Implement a separate tracker/recorder collaborator. Reuse the runner and existing
 metrics; preserve frozen `Message`, `StepRecord`, `Planner`, and `record()`
-signatures. Existing metrics capture happens before `act()`, which is sufficient
+signatures. E5 is disabled by default: supply a fresh `ConsensusTracker()` as
+`Metrics(..., consensus_tracker=...)` to enable collection. Use a fresh recorder
+and tracker per episode. Core experiments keep the default until the required
+validation is complete. Existing metrics capture happens before `act()`, which is sufficient
 for this receipt metric. Snapshot the all-agent pre-decision claims and actual
 timestamped deliveries into an E5 sidecar for offline evaluation and JSON reload.
 `Metrics.intents` plus `StepRecord.inbox_senders` alone cannot prove freshness:
 the latter omits individual message timestamps/payloads. Do not reconstruct
 deliveries from potential graph edges or infer missing evidence as success.
+
+The runner calls `capture_e5_round(t, positions, active, broadcasts, inboxes)`
+after delivery and `finalize_e5(terminal_t)` once at the final state. The hooks
+do nothing when disabled. Position snapshots may be ID-indexed lists or mappings
+with sparse original IDs; mappings need not include finished robots. Results
+are under `summary()['e5']`; `to_data()['e5']` also contains per-round evidence.
+Both are `None` when disabled. `Metrics.from_data()` accepts old bundles without
+E5 and restores enabled bundles for offline summaries.
 
 Do not invoke `compose()` or `act()` an extra time for logging, change their
 order, inspect another agent's cache inside decisions, add ACK messages, or
@@ -113,7 +124,7 @@ If physical clearance is also studied, report it separately. Its definition and
 required action/position evidence need their own contract; disappearance of this
 immediate-claim predicate alone does not prove a bottleneck has been passed.
 
-## Required verification for the future implementation
+## Verification criteria
 
 - Same-round bidirectional fresh delivery gives 0; first delivery at the next
   still-conflicting round gives 1.
@@ -128,5 +139,7 @@ immediate-claim predicate alone does not prove a bottleneck has been passed.
 - Terminal rows do not create episodes or receipt events. JSON reload reproduces
   summaries, and enabling the tracker leaves actions and trajectories unchanged.
 
-These are acceptance criteria, not claims that an E5 implementation or these
-tests already exist.
+Tracker tests live in `tests/test_e5_consensus.py`. Episode tests in
+`tests/test_episode_integration.py` cover default-off behavior, opt-in recording,
+cutoff/terminal handling, JSON reload, and unchanged core trajectories/results.
+The extension experiments and their plots remain pending.
