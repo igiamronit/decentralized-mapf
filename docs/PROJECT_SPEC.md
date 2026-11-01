@@ -307,7 +307,7 @@ Minimum rigour: **3 map types × 5 seeds × every config.** Same maps, same star
 |---|---|---|
 | **Success rate** | Fraction of agents reaching goal within step limit | Headline number. Standard across the MAPF literature, so comparable to published results. |
 | **Makespan** | Timestep at which the *last* agent arrives | Standard MAPF metric |
-| **Sum-of-costs (SoC)** | Sum of first-arrival timesteps over all agents | Standard MAPF metric |
+| **Sum-of-costs (SoC)** | Sum of first-arrival timesteps over all agents | Project finish-mode convention; see §7.1 |
 | **Deadlock count** | Unfinished agents violating bounded eventual progress over an observed W-step window | Finite-trace stall proxy; see the guide's monitor semantics |
 | **Communication overhead** | See §6.2 | The metric the research question depends on |
 
@@ -354,7 +354,15 @@ There is **no standard definition**. We must choose one and defend it in the rep
 
 ### 7.1 Centralized oracle 🟢
 
-**Use LaCAM3 via its Python bindings** — the `pybind` branch of `github.com/Kei18/lacam3` (Python interface added March 2025). Provides near-optimal centralized solutions at large scale.
+**Use LaCAM3 as the centralized reference.** The adapter uses the guide's
+executable fallback; Python bindings on the `pybind` branch of
+`github.com/Kei18/lacam3` remain an alternative. See README for setup.
+Keep the complete solver paths for validation, including
+goal revisits. Report first-arrival makespan/SoC to match the project's finish-mode
+cost definition, without truncating the paths. These costs can differ from the
+native LaCAM3 objective when a robot leaves a visited goal; no optimality claim
+under disappear-on-finish semantics follows. The guide's C6 contract defines the
+reporting convention and regression coverage.
 
 ⚠️ **Do not use `pylacam`.** Its own README states it replaces PIBT with random action selection to keep the implementation simple. It is a teaching toy, not a credible upper bound.
 

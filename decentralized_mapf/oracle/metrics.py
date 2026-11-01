@@ -1,3 +1,9 @@
+"""Project first-arrival costs over complete, validated oracle trajectories.
+
+The final cell is each path's fixed goal. Costs follow the decentralized
+first_arrival_steps_v1 convention; they are not LaCAM3's native stay-at-goal
+objective when a robot visits its goal and later moves away.
+"""
 
 from collections.abc import Sequence
 from typing import Optional
@@ -6,7 +12,7 @@ import math
 Position = tuple[int, int]
 Paths = list[list[Position]]
 
-# LaCAM3 and POGEMA use transition-based costs.
+# Count transitions until first arrival, matching POGEMA finish-mode reporting.
 PATH_CONVENTION = "transitions"
 
 
@@ -23,10 +29,13 @@ def _validate_paths(paths: Paths) -> None:
 
 
 def _cost(path: Sequence[Position], convention: str) -> int:
+    """Infer the fixed goal from the endpoint without altering the trajectory."""
+    goal = tuple(path[-1])
+    arrival = next(t for t, cell in enumerate(path) if tuple(cell) == goal)
     if convention == "transitions":
-        return len(path) - 1
+        return arrival
     if convention == "positions":
-        return len(path)
+        return arrival + 1
 
     raise ValueError(
         f"Unknown path convention {convention!r}. "
@@ -56,9 +65,15 @@ def oracle_metrics(
     paths: Paths | None,
     convention: Optional[str] = None,
 ) -> dict[str, int]:
-    """
+    """Report first-arrival makespan and SoC without removing path evidence.
+
     Frozen C6 interface:
         oracle_metrics(paths) -> {'makespan': int, 'SoC': int}
+
+    Each path must end at its fixed goal, as checked by validate_paths in the
+    adapter. The default counts transitions up to the first goal visit, even
+    when the complete trajectory contains later waits or goal departures.
+    The legacy 'positions' convention also counts the initial sample.
     """
     if paths is None:
         raise ValueError(

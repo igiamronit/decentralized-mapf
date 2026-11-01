@@ -127,7 +127,11 @@ def _write_scen_file(
 
 
 def _parse_result(result_text: str, n_agents: int) -> Paths:
-    """Parse LaCAM3 result output and convert (x,y) to (row,col)."""
+    """Convert (x,y) to (row,col), preserving every solver timestep.
+
+    Keep goal revisits and terminal waits for full-trajectory validation.
+    First-arrival cost calculation belongs to oracle.metrics, not parsing.
+    """
 
     if not isinstance(result_text, str):
         raise _OracleError("LaCAM3 result must be text.")
@@ -312,7 +316,9 @@ def oracle_solve(
         List of paths, preserving agent ordering, on success.
         None on invalid input, timeout, missing binary, or solver failure.
 
-    Each path includes its start and goal positions.
+    Paths preserve the complete solver timeline, including goal revisits and
+    terminal waits. Validate that timeline before reporting first-arrival costs
+    with oracle_metrics(); do not truncate paths at their first goal visit.
     """
 
     try:

@@ -733,22 +733,40 @@ matched instances, oracle ratios and statistical plots remain C6/C7/C9 work.
 
 ### C6 — Oracle & floor (Dhanvi)
 
+**Implemented:** `decentralized_mapf/oracle/` uses the executable fallback;
+see README for binary setup. The oracle is independent of `run_episode()`.
+
 ```python
-def oracle_solve(grid_map, starts, goals, timeout=30):
-    """Centralized near-optimal. Returns paths, or None on timeout."""
-    # option A: lacam3 pybind branch
-    # option B: pip install rt-lacam
-    # option C: shell out to the C++ binary, parse build/result.txt
-    return paths
+from decentralized_mapf.oracle import oracle_solve, oracle_metrics, oracle_soc_ratio
 
-def oracle_metrics(paths):
-    return {'makespan': max(len(p) for p in paths),
-            'SoC': sum(len(p) for p in paths)}
-
-# The floor is not new code — it is NoComm from C2 plus the C4 planner.
-# Every decentralized result is reported as a ratio:
-#     ratio = decentralized_SoC / oracle_SoC
+paths = oracle_solve(grid_map, starts, goals, timeout=30)
+if paths is not None:
+    reference = oracle_metrics(paths)
+    ratio = oracle_soc_ratio(decentralized_soc, reference["SoC"])
 ```
+
+The parser retains the entire solver timeline, including goal departures,
+revisits, and terminal waits. `validate_paths()` checks that original trajectory's
+starts, final goals, legal moves, vertex collisions, and edge swaps. Never cut
+paths at their first goal visit before validation: that can create an artificial
+stationary blocker or hide an invalid later move.
+
+For reporting, `oracle_metrics()` infers each fixed goal from the path endpoint
+and uses its **first** occurrence. The default transition convention reports
+`makespan = max(first_arrivals)` and `SoC = sum(first_arrivals)`, matching the
+project's `first_arrival_steps_v1` costs. Initial-goal arrivals cost zero; waits
+before arrival count. The optional `positions` convention adds one initial sample
+per robot. Neither convention mutates or truncates paths. Public oracle call
+signatures and returned metric keys remain unchanged.
+
+These comparison costs can differ from LaCAM3's native stay-at-goal objective
+when a robot leaves a visited goal. Its optimization is not a proof of optimality
+under POGEMA's disappear-on-finish semantics. Keep full paths for replay and
+validation; do not interpret their common length as each robot's cost. Regression
+tests cover staggered arrivals, goal revisits through a side pocket, and invalid
+movement after a goal visit. The no-communication floor uses the same decentralized
+planner with `NoCommunication`; compare costs only for solved runs and handle a
+zero oracle SoC explicitly, as `oracle_soc_ratio` rejects that undefined ratio.
 
 ### C7 — Experiment harness (Charitha)
 

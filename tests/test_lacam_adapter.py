@@ -1,6 +1,6 @@
 
 from pathlib import Path
-
+from decentralized_mapf.oracle.metrics import oracle_metrics
 import pytest
 import decentralized_mapf.oracle.lacam_adapter as adapter
 
@@ -204,3 +204,76 @@ def test_probe_binary_resolves_relative_environment_path(
     result = adapter._probe_binary()
 
     assert result == binary.resolve()
+    
+def test_parse_result_preserves_waits_but_metrics_use_individual_arrival():
+    result = """solved=1
+solution=
+0:(0,0),(0,1),(0,2),(0,3),
+1:(1,0),(1,1),(1,2),(1,3),
+2:(2,0),(2,1),(2,2),(2,3),
+3:(2,0),(2,1),(2,2),(3,3),
+4:(2,0),(2,1),(2,2),(4,3),
+5:(2,0),(2,1),(2,2),(5,3),
+6:(2,0),(2,1),(2,2),(6,3),
+7:(2,0),(2,1),(2,2),(7,3),
+8:(2,0),(2,1),(2,2),(8,3),
+9:(2,0),(2,1),(2,2),(9,3),
+10:(2,0),(2,1),(2,2),(10,3),
+"""
+
+    paths = _parse_result(result, 4)
+
+    assert [len(path) - 1 for path in paths] == [10, 10, 10, 10]
+
+    assert oracle_metrics(paths) == {
+        "makespan": 10,
+        "SoC": 16,
+    }
+
+
+@pytest.fixture
+def solver_output(monkeypatch, tmp_path):
+    """Exercise real map/scenario writing, parsing and validation with stub output."""
+    import subprocess
+
+    calls = []
+    monkeypatch.setattr(adapter, "_probe_binary", lambda: tmp_path / "main.exe")
+
+    def provide(text):
+        def run(command, **kwargs):
+            calls.append(command)
+            assert Path(command[command.index("--map") + 1]).is_file()
+            assert Path(command[command.index("--scen") + 1]).is_file()
+            Path(command[command.index("--output") + 1]).write_text(text, encoding="utf-8")
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(adapter.subprocess, "run", run)
+        return calls
+
+    return provide
+
+
+def test_oracle_solve_preserves_goal_revisit_for_validation(solver_output):
+    calls = solver_output("""solved=1
+solution=
+0:(1,0),(3,0),
+1:(2,0),(3,0),
+2:(2,1),(2,0),
+3:(2,1),(1,0),
+4:(2,0),(0,0),
+""")
+    paths = oracle_solve([[0, 0, 0, 0], [1, 1, 0, 1]],
+                         [(0, 1), (0, 3)], [(0, 2), (0, 0)])
+    assert len(calls) == 1
+    assert paths == [
+        [(0, 1), (0, 2), (1, 2), (1, 2), (0, 2)],
+        [(0, 3), (0, 3), (0, 2), (0, 1), (0, 0)],
+    ]
+    assert oracle_metrics(paths) == {"makespan": 4, "SoC": 5}
+
+
+@pytest.mark.parametrize("tail", ["2:(2,0),\n", "2:(9,0),\n3:(1,0),\n"])
+def test_oracle_solve_validates_movement_after_first_goal_visit(solver_output, tail):
+    calls = solver_output("solved=1\nsolution=\n0:(0,0),\n1:(1,0),\n" + tail)
+    assert oracle_solve([[0, 0, 0]], [(0, 0)], [(0, 1)]) is None
+    assert len(calls) == 1
