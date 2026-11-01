@@ -1,5 +1,6 @@
 
 import pytest
+from copy import deepcopy
 
 from decentralized_mapf.oracle.metrics import (
     oracle_metrics,
@@ -44,6 +45,26 @@ def test_all_agents_already_at_goal():
         "makespan": 0,
         "SoC": 0,
     }
+
+
+@pytest.mark.parametrize("convention,offset", [("transitions", 0), ("positions", 1)])
+@pytest.mark.parametrize("paths,arrivals", [
+    ([[(0, 0), (0, 1), (0, 1), (0, 1), (0, 1)],
+      [(1, 0), (1, 1), (1, 2), (1, 3), (1, 4)]], [1, 4]),
+    ([[(0, 0)] * 5,
+      [(1, 0), (1, 1), (1, 2), (1, 3), (1, 4)]], [0, 4]),
+    ([[(0, 0), (0, 1), (1, 1), (1, 1), (0, 1)],
+      [(2, 0), (2, 1), (2, 2), (2, 2), (2, 2)]], [1, 2]),
+    ([[(0, 0), (0, 0), (0, 0), (0, 1)],
+      [(1, 0), (1, 1), (1, 1), (1, 1)]], [3, 1]),
+])
+def test_full_timelines_use_first_arrivals_without_modifying_paths(paths, arrivals, convention, offset):
+    original = deepcopy(paths)
+    assert oracle_metrics(paths, convention) == {
+        "makespan": max(arrivals) + offset,
+        "SoC": sum(arrivals) + len(arrivals) * offset,
+    }
+    assert paths == original
 
 
 def test_positions_convention():

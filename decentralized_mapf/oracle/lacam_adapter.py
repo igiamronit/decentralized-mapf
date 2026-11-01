@@ -126,12 +126,12 @@ def _write_scen_file(
 
 
 
-def _parse_result(
-    result_text: str, 
-    n_agents: int,
-    goals: list[Position] | None = None,
-    ) -> Paths:
-    """Parse LaCAM3 result output and convert (x,y) to (row,col)."""
+def _parse_result(result_text: str, n_agents: int) -> Paths:
+    """Convert (x,y) to (row,col), preserving every solver timestep.
+
+    Keep goal revisits and terminal waits for full-trajectory validation.
+    First-arrival cost calculation belongs to oracle.metrics, not parsing.
+    """
 
     if not isinstance(result_text, str):
         raise _OracleError("LaCAM3 result must be text.")
@@ -234,28 +234,6 @@ def _parse_result(
         for agent_id, position in enumerate(positions_by_t[t]):
             paths[agent_id].append(position)
 
-    if goals is not None:
-        if len(goals) != n_agents:
-            raise _OracleError(
-                "Number of goals does not match the agent count."
-            )
-
-        truncated_paths = []
-
-        for agent_id, (path, goal) in enumerate(zip(paths, goals)):
-            goal = tuple(goal)
-
-            try:
-                arrival_t = path.index(goal)
-            except ValueError as exc:
-                raise _OracleError(
-                    f"Agent {agent_id} never reaches its goal {goal}."
-                ) from exc
-
-            truncated_paths.append(path[:arrival_t + 1])
-
-        paths = truncated_paths
-
     return paths
 
 
@@ -322,7 +300,7 @@ def _solve_via_binary(
             errors="replace",
         )
 
-        return _parse_result(result_text, len(starts), goals)
+        return _parse_result(result_text, len(starts))
 
 
 
@@ -338,7 +316,9 @@ def oracle_solve(
         List of paths, preserving agent ordering, on success.
         None on invalid input, timeout, missing binary, or solver failure.
 
-    Each path includes its start and goal positions.
+    Paths preserve the complete solver timeline, including goal revisits and
+    terminal waits. Validate that timeline before reporting first-arrival costs
+    with oracle_metrics(); do not truncate paths at their first goal visit.
     """
 
     try:

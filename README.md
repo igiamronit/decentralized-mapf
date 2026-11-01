@@ -220,7 +220,9 @@ if paths is not None:
 
 The grid uses `0` for free cells and `1` for obstacles. Coordinates are `(row, column)`. The adapter validates the problem and returned paths. If the executable is unavailable, the solver fails, or the call times out, `oracle_solve()` returns `None`; callers should check this before calculating metrics.
 
-The returned paths use the transition-based convention: the initial position is included, and each subsequent position represents one timestep transition.
+Returned paths preserve the complete solver timeline, including goal revisits and
+terminal waits. The adapter validates that full timeline before returning it;
+paths are not cut at their first goal visit.
 
 ### Oracle metrics
 
@@ -233,7 +235,16 @@ reference = oracle_metrics(paths)
 ratio = oracle_soc_ratio(decentralized_soc, reference["SoC"])
 ```
 
-`oracle_metrics()` returns a dictionary containing `makespan` and `SoC`. Under the transition-based convention, each agent's cost is the number of transitions in its path (`len(path) - 1`). Makespan is the maximum individual path cost; SoC is the sum of individual path costs.
+`oracle_metrics()` returns `makespan` and `SoC` using each robot's first visit to
+its fixed goal (the final cell of its validated path). Makespan is the maximum
+first-arrival timestep; SoC is their sum. This matches the decentralized
+`first_arrival_steps_v1` convention without removing trajectory evidence.
+Waiting before arrival counts; waiting or movement after first arrival does not.
+The optional `positions` convention also counts the initial sample.
+
+These are the project's finish-mode comparison costs. When LaCAM3 moves a robot
+away from an already-visited goal, its native stay-at-goal cost can differ; the
+reported project costs do not establish optimality for POGEMA's finish semantics.
 
 `oracle_soc_ratio()` computes decentralized SoC divided by oracle SoC. A value of `1.0` means equal SoC; values above `1.0` indicate higher decentralized cost. A zero oracle SoC is rejected because the ratio is undefined.
 
@@ -318,7 +329,11 @@ Planner episodes cover adjacent and more distant packets, horizontal and vertica
 
 The C6 tests cover malformed inputs and paths, coordinate conversion, collision and transition validation, metric calculations, parser failure cases, invalid timeouts, and adapter failure handling. A separate smoke test has successfully invoked the actual Windows LaCAM3 executable and returned valid paths with makespan 4 and SoC 8.
 
-The README example and saved-trace reload are also tested. These checks establish implementation and correctness on the tested fixtures; they are not experimental performance results. The complete integrated test suite will be rerun after resolving the merge.
+Oracle regressions also cover padded waits, valid goal departures/revisits, and
+rejection of invalid movement after a first goal visit. Adapter tests use stub
+solver output to exercise parsing and validation without requiring the executable.
+
+The README example and saved-trace reload are also tested. These checks establish implementation and correctness on the tested fixtures; they are not experimental performance results.
 
 ## Run the existing scripts
 
