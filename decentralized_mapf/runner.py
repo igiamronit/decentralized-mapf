@@ -33,6 +33,9 @@ def run_episode(env, comm: CommunicationModel, channel: Channel,
     metrics after reset/step; it only copies data, never evaluates specifications.
     Older recorders without this hook retain their original behavior.
 
+    Optional capture_e5_round/finalize_e5 hooks observe deliveries before actions
+    and close the tracker at the final timestamp; they do not steer the planner.
+
     Planner.reset() clears episode state; observe() receives each active robot's
     current observation and own map-relative position/goal before any compose().
     The runner never constructs a planner, changes sensing settings, or closes
@@ -48,6 +51,8 @@ def run_episode(env, comm: CommunicationModel, channel: Channel,
 
     observations, infos = env.reset(seed=config.seed)
     capture_environment = getattr(metrics, "capture_environment", None)
+    capture_e5_round = getattr(metrics, "capture_e5_round", None)
+    finalize_e5 = getattr(metrics, "finalize_e5", None)
     if capture_environment is not None:
         capture_environment(infos)
     channel.reset()
@@ -65,6 +70,8 @@ def run_episode(env, comm: CommunicationModel, channel: Channel,
 
         if t == max_steps or finished or not any(active):
             metrics.record(t, positions, stats, [], inboxes)
+            if finalize_e5 is not None:
+                finalize_e5(t)
             break
 
         for i, is_active in enumerate(active):
@@ -87,6 +94,19 @@ def run_episode(env, comm: CommunicationModel, channel: Channel,
             if active[message.recipient]:
                 inboxes[message.recipient].append(message)
                 arrived.append(message)
+
+        # Capture exactly once per decision round, after all deliveries.
+        if capture_e5_round is not None:
+            active_ids = [
+                i for i, is_active in enumerate(active) if is_active
+            ]
+            capture_e5_round(
+                t=t,
+                positions=positions,
+                active=active_ids,
+                broadcasts=outbox,
+                inboxes=inboxes,
+            )
 
         metrics.record(t, positions, stats, arrived, inboxes)
         actions = [

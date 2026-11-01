@@ -44,7 +44,9 @@ For the current simplified yield baseline, the consensus measurement uses the
 [E5 measurement contract](E5_CONSENSUS_CONTRACT.md): time to mutual current-claim
 receipt, rather than an implemented ACK protocol or guaranteed physical conflict
 clearance. The guide calls this extension E5; the experiment matrix below calls
-it E10. The contract fixes the instrumentation semantics; the tracker is pending.
+it E10. The tracker is implemented as an optional `Metrics` collaborator and is
+disabled by default. Its implementation/usage are in the guide and README;
+extension experiments and reported measurements still follow core validation.
 
 ---
 

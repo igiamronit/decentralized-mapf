@@ -13,12 +13,13 @@ from decentralized_mapf import (
     DCMAPFPlanner, GlobalCommunication, IndependentAStar, KNNCommunication, Metrics,
     NoCommunication, PerfectChannel, RangeCommunication, run_episode,
 )
+from decentralized_mapf.e5_consensus import ConsensusTracker
 
 
 class EpisodeIntegrationTests(unittest.TestCase):
     def episode(self, comm=None, *, planner_cls=DCMAPFPlanner, limit=20,
                 horizon=20, starts=None, goals=None, grid=".....\n.....",
-                with_cost_wrapper=True):
+                with_cost_wrapper=True, enable_e5=False):
         starts = starts or [[0, 1], [0, 2]]
         goals = goals or [[0, 4], [0, 0]]
         config = GridConfig(map=grid, agents_xy=starts, targets_xy=goals,
@@ -34,7 +35,8 @@ class EpisodeIntegrationTests(unittest.TestCase):
         planner = planner_cls(env.unwrapped.get_obstacles(ignore_borders=True), fixed_goals,
                               moves=config.MOVES)
         metrics = Metrics(fixed_goals, seed=7, window=3,
-                          intent_provider=planner.intended_steps)
+                          intent_provider=planner.intended_steps,
+                          consensus_tracker=ConsensusTracker() if enable_e5 else None)
         result = run_episode(env, comm or GlobalCommunication(), PerfectChannel(),
                              planner, metrics, max_steps=limit)
         return result, metrics, planner, env
@@ -99,6 +101,17 @@ class EpisodeIntegrationTests(unittest.TestCase):
         self.assertEqual(result["n_epistemic"], 0)
         self.assertGreaterEqual(result["rho_safe"], 0)
 
+    def test_corridor_receipt_agreement_does_not_imply_clearance(self):
+        result, _, _, _ = self.episode(grid=".....", enable_e5=True)
+        self.assertEqual(result["CSR"], 0.0)
+        # Mutual claim receipt does not imply physical conflict resolution.
+        self.assertEqual(result["e5"]["n_conflicts"], 1)
+        self.assertEqual(result["e5"]["n_agreed"], 1)
+        self.assertEqual(result["e5"]["agreement_coverage"], 1.0)
+        self.assertEqual(result["e5"]["mean_rounds_to_agreement"], 0)
+        self.assertEqual(result["e5"]["episodes"][0]["outcome"], "agreed")
+        self.assertIsNone(result["e5"]["episodes"][0]["ended_at"])
+
     def test_all_topologies_use_the_same_planner_and_seeded_initial_state(self):
         states = []
         for comm in (GlobalCommunication(), NoCommunication(), RangeCommunication(0),
@@ -133,6 +146,32 @@ class EpisodeIntegrationTests(unittest.TestCase):
                                planner, next_metrics, 20)
         self.assertEqual(repeated, result)
         self.assertEqual(next_metrics.trace, metrics.trace)
+
+    def test_e5_instrumentation_does_not_change_trajectory(self):
+        result_a, metrics_a, _, _ = self.episode(enable_e5=True)
+        result_b, metrics_b, _, _ = self.episode()
+        self.assertEqual(metrics_a.trace, metrics_b.trace)
+        self.assertEqual(metrics_a.intents, metrics_b.intents)
+        self.assertEqual({k: v for k, v in result_a.items() if k != "e5"},
+                         {k: v for k, v in result_b.items() if k != "e5"})
+
+    def test_e5_is_disabled_by_default(self):
+        result, metrics, _, _ = self.episode()
+        self.assertIsNone(metrics.e5)
+        self.assertIsNone(result["e5"])
+        self.assertIsNone(metrics.to_data()["e5"])
+        legacy = metrics.to_data()
+        legacy.pop("e5")
+        self.assertEqual(Metrics.from_data(legacy).summary(), result)
+
+    def test_e5_cutoff_and_roundtrip(self):
+        for limit in (0, 1, 20):
+            with self.subTest(limit=limit):
+                result, metrics, _, _ = self.episode(limit=limit, enable_e5=True)
+                self.assertEqual(len(metrics.e5.rounds), result["steps"])
+                restored = Metrics.from_data(json.loads(json.dumps(metrics.to_data())))
+                self.assertEqual(restored.summary(), result)
+                self.assertEqual(restored.e5.rounds, metrics.e5.rounds)
 
 
 if __name__ == "__main__":

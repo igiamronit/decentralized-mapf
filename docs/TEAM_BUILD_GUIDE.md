@@ -957,7 +957,11 @@ Exclude failed robots from the success-rate denominator, and say so.
 
 No new algorithm — instrument Harsh's existing yield rule. The authoritative
 [E5 measurement contract](E5_CONSENSUS_CONTRACT.md) fixes the definition and
-implementation acceptance criteria. Instrumentation remains pending.
+implementation acceptance criteria. `e5_consensus.ConsensusTracker` is implemented
+as an optional collaborator. `Metrics(..., consensus_tracker=ConsensusTracker())`
+enables it; the default is `None`, leaving core runs without E5 collection.
+Use a fresh tracker/recorder per episode. Extension experiments still wait for
+the core checkpoints; focused unit tests are not a substitute for those results.
 
 One round is one nonterminal runner timestep. Agreement means the first round
 of a pair's conflict episode where both agents receive each other's
@@ -973,6 +977,13 @@ count each agreement once, and report missing agreements and coverage alongside
 successful-sample mean/max. Plot these against communication quality (range,
 loss rate), with the operational definition stated in the report. Keep the
 planner, messages, frozen interfaces, and observation settings unchanged.
+
+The runner calls optional `capture_e5_round` after delivery and `finalize_e5` at
+the terminal timestamp. `summary()['e5']` contains the receipt statistics and
+`to_data()['e5']` also saves round evidence. Both are `None` when disabled.
+`Metrics.from_data()` restores enabled bundles and accepts older data without E5.
+Position snapshots may be lists or mappings keyed by original robot IDs; a mapping
+may contain only active robots and need not use consecutive IDs.
 
 ### E6 — Deadlock-freedom proof (Charitha)
 
