@@ -41,7 +41,7 @@ def run_episode(env, comm: CommunicationModel, channel: Channel,
     The runner never constructs a planner, changes sensing settings, or closes
     the caller's environment. Channel implementations must preserve recipient.
     """
-    if not isinstance(max_steps, int) or max_steps < 0:
+    if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 0:
         raise ValueError("max_steps must be a nonnegative integer")
     config = env.unwrapped.grid_config
     if config.observation_type != "POMAPF" or config.on_target != "finish":
@@ -58,6 +58,13 @@ def run_episode(env, comm: CommunicationModel, channel: Channel,
     channel.reset()
     planner.reset()
     goals = [tuple(p) for p in env.unwrapped.get_targets_xy(ignore_borders=True)]
+    # Recorder metadata is part of the experiment evidence. A mismatched seed
+    # or goal ordering can otherwise produce plausible but mislabeled results.
+    # Minimal legacy recorders without these attributes remain supported.
+    if hasattr(metrics, "seed") and metrics.seed != config.seed:
+        raise ValueError("Recorder seed differs from the environment seed")
+    if hasattr(metrics, "goals") and [tuple(p) for p in metrics.goals] != goals:
+        raise ValueError("Recorder goals differ from the environment goals")
     wait = [tuple(move) for move in config.MOVES].index((0, 0))
     finished = False
 

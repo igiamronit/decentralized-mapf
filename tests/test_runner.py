@@ -250,7 +250,7 @@ class RunnerTests(unittest.TestCase):
                         ScriptedPlanner(), RecordingMetrics(), 1)
 
     def test_invalid_run_settings(self):
-        for settings, limit in (({}, -1), ({"on_target": "restart"}, 1),
+        for settings, limit in (({}, -1), ({}, True), ({"on_target": "restart"}, 1),
                                 ({"observation_type": "MAPF"}, 1), ({"seed": None}, 1)):
             with self.subTest(settings=settings, limit=limit), self.assertRaises(ValueError):
                 run_episode(self.environment(**settings), NoCommunication(), PerfectChannel(),

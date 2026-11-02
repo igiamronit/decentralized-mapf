@@ -173,6 +173,14 @@ class EpisodeIntegrationTests(unittest.TestCase):
                 self.assertEqual(restored.summary(), result)
                 self.assertEqual(restored.e5.rounds, metrics.e5.rounds)
 
+    def test_mismatched_recorder_metadata_is_rejected_even_without_steps(self):
+        _, _, planner, env = self.episode(limit=0)
+        for recorder in (Metrics(planner.goals, seed=8),
+                         Metrics(list(reversed(planner.goals)), seed=7)):
+            with self.subTest(seed=recorder.seed, goals=recorder.goals):
+                with self.assertRaisesRegex(ValueError, "Recorder (seed|goals) differs?"):
+                    run_episode(env, NoCommunication(), PerfectChannel(), planner, recorder, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
