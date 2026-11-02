@@ -129,6 +129,26 @@ class PlannerTests(unittest.TestCase):
         planner.observe(1, {}, (0, 2), (0, 0))
         self.assertEqual(planner.compose(1, 1).next_cells, [(0, 3), (1, 3)])
 
+    def test_losing_peer_receipt_releases_retreat_immediately(self):
+        grid = [[0] * 5, [1, 1, 1, 0, 1]]
+        for inbox_kind in ("empty", "stale_peer", "another_robot"):
+            with self.subTest(inbox=inbox_kind):
+                planner = DCMAPFPlanner(grid, [(0, 4), (0, 0), (0, 4)])
+                planner.observe(1, {}, (0, 2), (0, 0))
+                planner.compose(1, 0)
+                peer = Message(0, (0, 1), (0, 4), [(0, 2), (0, 3), (0, 4)])
+                self.assertEqual(planner.moves[planner.act(1, {}, [peer], (0, 0))], (0, 1))
+                planner.observe(1, {}, (0, 3), (0, 0))
+                planner.compose(1, 1)
+                inbox = {"empty": [], "stale_peer": [peer], "another_robot": [
+                    Message(2, (0, 4), (0, 4), sent_at=1)
+                ]}[inbox_kind]
+                # Resume the goal route, rather than taking the old refuge step down.
+                action = planner.act(1, {}, inbox, (0, 0))
+                self.assertEqual(planner.moves[action], (0, -1))
+                self.assertNotIn(1, planner._yield_to)
+                self.assertNotIn(1, planner._refuges)
+
     def test_custom_action_order_and_invalid_configuration(self):
         moves = [(0, 1), (0, -1), (1, 0), (-1, 0), (0, 0)]
         planner = IndependentAStar([[0, 0]], [(0, 1)], moves=moves)

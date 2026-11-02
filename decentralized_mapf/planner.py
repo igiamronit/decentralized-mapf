@@ -143,8 +143,15 @@ class DCMAPFPlanner(IndependentAStar):
         peer = next((m for m in neighbours if m.sender == self._yield_to.get(agent_id)), None)
         if peer is not None:
             return self._avoid(agent_id, neighbours, peer)
-        self._yield_to.pop(agent_id, None)
+        released_peer = self._yield_to.pop(agent_id, None)
         self._refuges.pop(agent_id, None)
+        if released_peer is not None:
+            # A refuge path is not a goal path. Releasing the peer must also
+            # release that route, even halfway through a retreat. Recheck any
+            # other current claims below before executing the new goal step.
+            path = self.paths[agent_id] = astar(self.grid_map, position, goal)
+            if not path:
+                return self._action(position, position)
         blocker = blocking_neighbour(agent_id, position, path[0], neighbours)
         if blocker is None:
             return self._action(position, path[0])
