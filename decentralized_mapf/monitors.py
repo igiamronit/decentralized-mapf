@@ -9,10 +9,42 @@ not a proof of permanent deadlock: necessary detours can violate this property.
 """
 
 from itertools import combinations
+from math import isfinite
 
 from .communication import manhattan
 from .interfaces import Message
 from .planner import blocking_neighbour
+
+
+def validate_record(row, t, n_agents):
+    """Reject malformed recorded evidence before it can produce research scores.
+
+    Used on live snapshots and saved bundles. Map bounds are unavailable here;
+    callers still own instance validation. Coordinates must be integer pairs,
+    graph values describe at most the original fleet, and delivery counts must
+    agree with the inbox evidence. Unknown liveness windows remain valid.
+    """
+    def integer(value, lower, upper=None):
+        return (not isinstance(value, bool) and isinstance(value, int)
+                and value >= lower and (upper is None or value <= upper))
+
+    if not integer(row.t, 0) or row.t != t or len(row.positions) != n_agents:
+        raise ValueError("Trace must be contiguous from t=0 with stable agent IDs")
+    if any(not isinstance(p, (tuple, list)) or len(p) != 2
+           or any(not integer(v, 0) for v in p) for p in row.positions):
+        raise ValueError("Trace positions must be nonnegative integer coordinate pairs")
+    if (isinstance(row.mean_degree, bool) or not isinstance(row.mean_degree, (int, float))
+            or not isfinite(row.mean_degree) or not 0 <= row.mean_degree <= max(0, n_agents - 1)
+            or not integer(row.n_components, 0, n_agents)):
+        raise ValueError("Invalid trace graph statistics")
+    if not integer(row.n_messages, 0) or not integer(row.max_age, 0, t):
+        raise ValueError("Invalid trace message count or age")
+    if (not isinstance(row.inbox_senders, dict)
+            or any(not integer(i, 0, n_agents - 1) or not isinstance(ids, list)
+                   or any(not integer(sender, 0, n_agents - 1) for sender in ids)
+                   for i, ids in row.inbox_senders.items())
+            or sum(map(len, row.inbox_senders.values())) != row.n_messages):
+        raise ValueError("Trace inbox evidence disagrees with delivered messages")
 
 
 def _validate(trace, goals):

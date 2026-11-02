@@ -35,6 +35,9 @@ class Metrics:
         self.goals = [tuple(goal) for goal in goals]
         if not self.goals:
             raise ValueError("At least one goal is required")
+        if any(len(goal) != 2 or any(isinstance(v, bool) or not isinstance(v, int)
+                                    or v < 0 for v in goal) for goal in self.goals):
+            raise ValueError("Goals must be nonnegative integer coordinate pairs")
         self.seed, self.window, self.intent_provider = seed, window, intent_provider
         self.trace, self._intents, self.environment_metrics = [], {}, {}
         self.e5 = consensus_tracker
@@ -62,14 +65,16 @@ class Metrics:
         ages = [t - msg.sent_at for msg in arrived]
         if any(age < 0 for age in ages):
             raise ValueError("A delivered message cannot come from the future")
-        self.trace.append(StepRecord(
+        row = StepRecord(
             t=t, positions=[tuple(p) for p in positions],
             mean_degree=graph_stats["mean_degree"], n_components=graph_stats["n_components"],
             n_messages=len(arrived),
             inbox_senders={i: [msg.sender for msg in inboxes.get(i, [])]
                            for i in range(len(self.goals))},
             max_age=max(ages, default=0),
-        ))
+        )
+        monitors.validate_record(row, t, len(self.goals))
+        self.trace.append(row)
         if self.intent_provider is not None:
             self._intents[t] = {i: tuple(cell) for i, cell in self.intent_provider().items()
                                 if tuple(positions[i]) != self.goals[i]}
@@ -157,7 +162,9 @@ class Metrics:
             values = dict(values)
             values["positions"] = [tuple(p) for p in values["positions"]]
             values["inbox_senders"] = {int(i): list(ids) for i, ids in values["inbox_senders"].items()}
-            recorder.trace.append(StepRecord(**values))
+            row = StepRecord(**values)
+            monitors.validate_record(row, len(recorder.trace), len(recorder.goals))
+            recorder.trace.append(row)
         recorder._intents = {int(t): {int(i): tuple(cell) for i, cell in claims.items()}
                             for t, claims in data["intents"].items()}
         recorder.environment_metrics = deepcopy(data["environment_metrics"])

@@ -8,7 +8,8 @@ from decentralized_mapf import monitors
 
 
 def trace(positions, heard=None):
-    return [StepRecord(t, [tuple(p) for p in cells], 0.0, len(cells), 0,
+    return [StepRecord(t, [tuple(p) for p in cells], 0.0, len(cells),
+                       sum(map(len, (heard or {}).values())),
                        heard or {i: [] for i in range(len(cells))})
             for t, cells in enumerate(positions)]
 
@@ -70,7 +71,24 @@ class MonitorTests(unittest.TestCase):
 
 
 class MetricsTests(unittest.TestCase):
-    def record(self, recorder, t, positions, arrived=(), inboxes=None, degree=1):
+    def test_invalid_configuration_and_semantic_versions(self):
+        for kwargs in ({"seed": True}, {"seed": 1, "window": 0}, {"seed": 1, "window": True}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                Metrics([(0, 1)], **kwargs)
+        for goals in ([], [(0,)], [(0, 1, 2)], [(True, 0)], [(0.5, 0)], [(-1, 0)]):
+            with self.subTest(goals=goals), self.assertRaises(ValueError):
+                Metrics(goals, seed=1)
+        recorder = Metrics([(0, 1)], seed=1)
+        self.record(recorder, 0, [(0, 0)])
+        for field in ("cost_definition", "liveness_definition"):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                data = recorder.to_data()
+                data[field] = "unknown_version"
+                Metrics.from_data(data)
+
+    def record(self, recorder, t, positions, arrived=(), inboxes=None, degree=None):
+        if degree is None:
+            degree = max(0, len(positions) - 1)
         recorder.record(t, positions, {"mean_degree": degree, "n_components": 1},
                         list(arrived), inboxes or {})
 
@@ -82,7 +100,7 @@ class MetricsTests(unittest.TestCase):
         self.record(recorder, 0, positions)
         message = Message(0, (0, 0), (0, 3), sent_at=0, recipient=1)
         self.record(recorder, 1, positions, [message], {1: [message]})
-        self.record(recorder, 2, positions, degree=99)  # terminal graph excluded
+        self.record(recorder, 2, positions, degree=0)  # terminal graph excluded
         positions[0][0] = 99
         intentions[0] = (99, 99)
         message.sender = 99
@@ -161,6 +179,20 @@ class MetricsTests(unittest.TestCase):
             self.record(recorder, 0, [])
         with self.assertRaises(ValueError):
             self.record(recorder, 0, [(0, 0)], [Message(0, (0, 0), (0, 1), sent_at=1)])
+
+    def test_corrupt_saved_evidence_is_rejected(self):
+        recorder = Metrics([(0, 4)], seed=1)
+        self.record(recorder, 0, [(0, 0)], degree=0)
+        self.record(recorder, 1, [(0, 0)], degree=0)
+        corruptions = [("n_messages", -1), ("n_messages", 1), ("max_age", 1),
+                       ("mean_degree", float("nan")), ("n_components", 2),
+                       ("positions", [[0.5, 0]]), ("positions", [[True, 0]]),
+                       ("positions", [[-1, 0]]), ("inbox_senders", {"5": []})]
+        for field, value in corruptions:
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                data = json.loads(json.dumps(recorder.to_data()))
+                data["trace"][0][field] = value
+                Metrics.from_data(data)
 
 
 if __name__ == "__main__":
