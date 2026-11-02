@@ -223,14 +223,15 @@ def _parse_result(result_text: str, n_agents: int) -> Paths:
     if not positions_by_t:
         raise _OracleError("No valid timestep lines in solution.")
 
-    max_t = max(positions_by_t)
-
-    if set(positions_by_t) != set(range(max_t + 1)):
+    # Allocate by the number of output rows, never by an untrusted timestamp.
+    # A sparse huge timestamp previously tried to materialize range(max_t+1).
+    timesteps = sorted(positions_by_t)
+    if any(t != expected for expected, t in enumerate(timesteps)):
         raise _OracleError("LaCAM3 output has missing timesteps.")
 
     paths: Paths = [[] for _ in range(n_agents)]
 
-    for t in range(max_t + 1):
+    for t in timesteps:
         for agent_id, position in enumerate(positions_by_t[t]):
             paths[agent_id].append(position)
 
@@ -323,11 +324,11 @@ def oracle_solve(
 
     try:
         if (
-    isinstance(timeout, bool)
-    or not isinstance(timeout, (int, float))
-    or not math.isfinite(timeout)
-    or timeout <= 0
-):
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not math.isfinite(timeout)
+            or timeout <= 0
+        ):
             raise ValueError("timeout must be a finite positive number.")
         validate_problem(grid_map, starts, goals)
 

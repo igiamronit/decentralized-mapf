@@ -1,4 +1,5 @@
 
+import os
 from pathlib import Path
 from decentralized_mapf.oracle.metrics import oracle_metrics
 import pytest
@@ -61,7 +62,7 @@ solution=
 
 
 def test_parse_unsolved_result():
-    with pytest.raises(Exception):
+    with pytest.raises(adapter._OracleError):
         _parse_result("solved=0\n", 1)
 
 
@@ -108,7 +109,11 @@ def test_subprocess_timeout_returns_none(monkeypatch):
     import subprocess
     import decentralized_mapf.oracle.lacam_adapter as adapter
 
+    calls = []
+    monkeypatch.setattr(adapter, "_probe_binary", lambda: Path("/tmp/main"))
+
     def fake_run(*args, **kwargs):
+        calls.append(args[0])
         raise subprocess.TimeoutExpired(
             cmd=args[0],
             timeout=kwargs.get("timeout", 1),
@@ -125,6 +130,13 @@ def test_subprocess_timeout_returns_none(monkeypatch):
     )
 
     assert result is None
+    assert len(calls) == 1
+
+
+def test_parse_sparse_large_timestep_rejected_without_allocating_horizon():
+    # The parser must allocate by output size, not by an untrusted timestamp.
+    with pytest.raises(adapter._OracleError, match="missing timesteps"):
+        _parse_result("solved=1\nsolution=\n0:(0,0),\n1000000000000:(1,0),\n", 1)
     
 @pytest.mark.parametrize(
     "timeout",
@@ -153,7 +165,7 @@ solution=
 0:(0,0),
 0:(1,0),
 """
-    with pytest.raises(Exception, match="Duplicate timestep"):
+    with pytest.raises(adapter._OracleError, match="Duplicate timestep"):
         _parse_result(result, 1)
 
 
@@ -163,7 +175,7 @@ solution=
 0:(0,0),
 2:(2,0),
 """
-    with pytest.raises(Exception, match="missing timesteps"):
+    with pytest.raises(adapter._OracleError, match="missing timesteps"):
         _parse_result(result, 1)
 
 
@@ -179,7 +191,7 @@ solution=
 )
 def test_parse_malformed_coordinates_rejected(coordinate_line):
     result = f"solved=1\nsolution=\n{coordinate_line}\n"
-    with pytest.raises(Exception):
+    with pytest.raises(adapter._OracleError):
         _parse_result(result, 1)
 
 
@@ -188,7 +200,7 @@ def test_parse_wrong_agent_count_rejected():
 solution=
 0:(0,0),(1,1),
 """
-    with pytest.raises(Exception, match="expected 1 positions"):
+    with pytest.raises(adapter._OracleError, match="expected 1 positions"):
         _parse_result(result, 1)
         
 def test_probe_binary_resolves_relative_environment_path(
@@ -277,3 +289,44 @@ def test_oracle_solve_validates_movement_after_first_goal_visit(solver_output, t
     calls = solver_output("solved=1\nsolution=\n0:(0,0),\n1:(1,0),\n" + tail)
     assert oracle_solve([[0, 0, 0]], [(0, 0)], [(0, 1)]) is None
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("failure", ["nonzero", "missing_output", "launch_error"])
+def test_binary_failures_reach_subprocess(monkeypatch, tmp_path, failure):
+    import subprocess
+
+    monkeypatch.setattr(adapter, "_probe_binary", lambda: tmp_path / "main")
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        if failure == "launch_error":
+            raise OSError("cannot execute binary")
+        return subprocess.CompletedProcess(command, 1 if failure == "nonzero" else 0,
+                                           stdout="", stderr="solver failed")
+
+    monkeypatch.setattr(adapter.subprocess, "run", run)
+    assert oracle_solve([[0, 0]], [(0, 0)], [(0, 1)]) is None
+    assert len(calls) == 1
+    assert not Path(calls[0][calls[0].index("--map") + 1]).parent.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Protocol stub uses a POSIX shebang")
+def test_real_subprocess_with_protocol_stub_and_space_in_binary_path(monkeypatch, tmp_path):
+    """Exercise OS invocation and temporary-file cleanup, without claiming LaCAM runs."""
+    import sys
+
+    binary = tmp_path / "solver with spaces" / "main"
+    binary.parent.mkdir()
+    binary.write_text(f"#!{sys.executable}\n" + '''
+import sys
+from pathlib import Path
+args = sys.argv
+assert Path(args[args.index("--map") + 1]).is_file()
+assert Path(args[args.index("--scen") + 1]).is_file()
+Path(args[args.index("--output") + 1]).write_text(
+    "solved=1\\nsolution=\\n0:(0,0),\\n1:(1,0),\\n")
+''')
+    binary.chmod(0o700)
+    monkeypatch.setenv("LACAM3_BINARY_PATH", str(binary))
+    assert oracle_solve([[0, 0]], [(0, 0)], [(0, 1)], timeout=1) == [[(0, 0), (0, 1)]]
