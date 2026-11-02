@@ -29,10 +29,6 @@ class TestE5Consensus(unittest.TestCase):
         positions = {
             i: m.position for i, m in claims.items()
         }
-        arrived = [
-            m for inbox in (inboxes or {}).values() for m in inbox
-        ]
-
         self.tracker.record_round(
             t=t,
             positions=positions,
