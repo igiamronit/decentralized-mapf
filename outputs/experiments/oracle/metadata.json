@@ -1,0 +1,32 @@
+{
+  "experiment": "oracle",
+  "started_utc": "2026-11-03T13:49:17.752343+00:00",
+  "workers": 4,
+  "n_instances": 120,
+  "n_runs": 360,
+  "notes": [],
+  "channel": "PerfectChannel",
+  "planner": "DCMAPFPlanner",
+  "collision_system": "priority",
+  "on_target": "finish",
+  "oracle": "enabled",
+  "versions": {
+    "python": "3.13.18",
+    "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.39",
+    "pogema": "2.0.0a",
+    "numpy": "2.5.3",
+    "matplotlib": "3.11.2",
+    "PyYAML": "6.0.3",
+    "pogema_source": {
+      "url": "https://github.com/Cognitive-AI-Systems/pogema.git",
+      "vcs_info": {
+        "commit_id": "2e27a16af86fe47dfa62ab2f685a659ed5dc9910",
+        "requested_revision": "2e27a16af86fe47dfa62ab2f685a659ed5dc9910",
+        "vcs": "git"
+      }
+    },
+    "repository_commit": "9cc5de23a83fbc918fe6f475e38c712bd64070c1"
+  },
+  "finished_utc": "2026-11-03T13:59:05.757064+00:00",
+  "n_errors": 0
+}

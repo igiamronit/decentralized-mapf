@@ -25,7 +25,7 @@ current cost calculation against the executable.
 
 These checks establish implementation and correctness on the tested fixtures; they are not experimental performance results.
 
-The C7 experiment harness is implemented and the core sweeps (E1–E5) have been run with the perfect channel; see [Experiment harness](#experiment-harness-c7). Oracle comparisons still need a working LaCAM3 binary. Loss/delay extensions follow core validation.
+The C7 experiment harness is implemented and the core sweeps (E1–E5) have been run with the perfect channel; see [Experiment harness](#experiment-harness-c7). The oracle comparison ran at N = 10 with LaCAM3 built from source on Linux. Loss/delay extensions follow core validation.
 
 For context, read [the team build guide](docs/TEAM_BUILD_GUIDE.md) for assignments and contracts, and [the project specification](docs/PROJECT_SPEC.md) for research requirements. This README covers the current implementation and how to use it.
 
@@ -85,8 +85,11 @@ scripts/
     analyze.py                  Invariants, summary and paired tables
     plot_results.py             Figures from a finished sweep
     plot_episode.py             One instance under several topologies
+    animate_episode.py          POGEMA's own .mp4 video of an episode
+    show_maps_and_communication.py  The three maps and who hears whom
+    figure_style.py             Shared colours and look for every figure
 
-experiments/                     YAML configs: smoke, ladder (E1), topology (E2/E3/E5),
+experiments/                     YAML configs: smoke, ladder and oracle (E1), topology (E2/E3/E5),
                                  scaling_congestion and scaling_density (E4)
 
 outputs/                         Generated artifacts (ignored by Git)
@@ -430,8 +433,10 @@ python scripts/experiments/plot_results.py outputs/experiments/ladder
 Design, outputs, metric definitions and statistics are in
 [EXPERIMENTS.md](docs/EXPERIMENTS.md); results and their limits are in
 [C7_RESULTS.md](docs/C7_RESULTS.md). The oracle runs only when
-`LACAM3_BINARY_PATH` points to a working LaCAM3 binary; it was not available
-when the reported sweeps were run.
+`LACAM3_BINARY_PATH` points to a working LaCAM3 binary (built with
+`cmake -B build && make -C build` in a clone of Kei18/lacam3). With it, each
+instance can take up to `oracle_timeout` seconds, because LaCAM3 keeps
+improving its solution until the limit.
 
 ## Run the existing scripts
 

@@ -154,5 +154,6 @@ def test_analysis_and_plots_run_on_a_finished_sweep(tmp_path):
                        check=True, capture_output=True)
     assert (out / "checks.txt").read_text() == "All invariants hold.\n"
     assert {p.name for p in (out / "figures").iterdir()} == {
-        "ladder_success.png", "ladder_paired.png", "ladder_reach.png", "ladder_cost.png",
-        "ladder_arrivals.png"}
+        "1_success_with_and_without_communication.png",
+        "2_gain_from_communication_per_instance.png", "3_how_far_stuck_robots_stopped.png",
+        "4_cost_on_instances_all_settings_solved.png", "5_robots_at_goal_over_time.png"}

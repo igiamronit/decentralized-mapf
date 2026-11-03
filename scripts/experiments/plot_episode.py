@@ -19,16 +19,18 @@ ROOT = Path(__file__).resolve().parents[2]
 # Let the script run from the repository root without installing the package.
 sys.path.insert(0, str(ROOT))
 
+from figure_style import RESPONSE_COLORS, apply  # noqa: E402
 from decentralized_mapf.coordination import goal_distances  # noqa: E402
 from decentralized_mapf.harness import make_instance, run_one  # noqa: E402
 
-RESPONSE_STYLE = {"wait": ("#4C72B0", "o"), "detour": ("#55A868", "^"),
-                  "retreat": ("#DD8452", "v"), "proceed": ("#C44E52", "s")}
+RESPONSE_STYLE = {name: (RESPONSE_COLORS[name], marker) for name, marker in
+                  (("wait", "o"), ("detour", "^"), ("retreat", "v"), ("proceed", "s"))}
 
 
 def draw_paths(ax, instance, trace, events, title):
     ax.imshow(instance["grid"], cmap="Greys", vmin=0, vmax=1.6)
-    colors = plt.get_cmap("tab20")
+    # tab20c: blues, oranges, greens, purples and greys, no reds.
+    colors = plt.get_cmap("tab20c")
     for i, goal in enumerate(instance["goals"]):
         path = [row["positions"][i] for row in trace]
         color = colors(i % 20)
@@ -43,6 +45,7 @@ def draw_paths(ax, instance, trace, events, title):
     ax.set_title(title, fontsize=10)
     ax.set_xticks([])
     ax.set_yticks([])
+    ax.grid(False)
 
 
 def draw_progress(ax, instance, trace):
@@ -71,6 +74,7 @@ def main():
     parser.add_argument("--max-steps", type=int, default=256)
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
+    apply()
 
     # One instance, so every topology sees the same map, starts and goals.
     instance = make_instance(args.map, args.n_agents, args.seed, args.size)

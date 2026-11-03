@@ -1,0 +1,7 @@
+map,size,n_agents,topology,solved,time_limit,unfinished,error
+random,32,10,global,19,1,0,0
+random,32,10,none,8,12,0,0
+warehouse,32,10,global,20,0,0,0
+warehouse,32,10,none,8,12,0,0
+maze,32,10,global,20,0,0,0
+maze,32,10,none,3,17,0,0

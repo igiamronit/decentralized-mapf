@@ -1,0 +1,14 @@
+description: >
+  E1 extended. How far is decentralized coordination from the centralized
+  LaCAM3 reference as the fleet grows? Same 32 x 32 maps, N from 10 to 100.
+  LaCAM3 improves its plan until the time limit, so 10 s per instance keeps
+  the oracle phase short; it solves these sizes well within that.
+name: oracle
+kind: oracle
+maps: [random, warehouse, maze]
+n_agents: [10, 25, 50, 100]
+seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+topologies: [none, range_2, global]
+max_steps: 256
+oracle: true
+oracle_timeout: 10

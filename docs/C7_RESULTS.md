@@ -26,17 +26,22 @@ Each config's figures are in `outputs/experiments/<config>/figures/` after runni
 6. With communication, almost all remaining stalls are "heard, still stuck":
    the limit is then the planner rule and the map, not information.
 
-The comparison with the centralized LaCAM3 reference (research question 8) is
-**not answered**: the binary was not available where these sweeps ran.
+7. LaCAM3 solved every instance up to 100 robots. The decentralized planner falls
+   further behind as the fleet grows: at 100 robots global brings 30–64% of
+   robots home, and on solved instances its extra cost rises from about 2%
+   (10 robots) to 18–22% (50 robots).
 
 ## E1 — Does communication help at all? (`ladder`)
 
 **Question.** Does global communication beat no communication on the same instances?
 
 **Setup.** N = 10 on 32 × 32 random, warehouse and maze maps, 20 seeds each.
-Global vs none. Oracle enabled but unavailable.
+Global vs none. The oracle run (`outputs/experiments/ladder_oracle`) repeats
+the same 60 instances with LaCAM3 built from source on Linux (30 s limit per
+instance); its decentralized runs are identical to the first ladder run.
 
-**Metrics.** CSR, ISR, ρ_reach, SoC on instances both settings solved.
+**Metrics.** CSR, ISR, ρ_reach, SoC on instances both settings solved, and the
+SoC ratio $SoC_{\text{ours}} / SoC_{\text{LaCAM3}}$ on instances we solved.
 
 **Result.**
 
@@ -53,6 +58,10 @@ Global vs none. Oracle enabled but unavailable.
   (checked step by step), so the SoC difference is exactly 0.
 - Arrival curves flatten by about step 75 of 256. Robots that have not arrived
   by then never do.
+- LaCAM3 solved all 60 instances. SoC ratio: global 1.043 [1.030, 1.060] over
+  59 solved instances; none 1.002 [0.998, 1.005] over its 19. The none ratio is
+  low only because it solves the easy instances, where global's runs are the
+  same trajectories. Global's extra cost comes from instances none never solves.
 - The single global failure (random, seed 2) is four robots meeting head-on in a
   one-cell corridor with no side pocket. All four hear each other; it is
   labelled a rule failure. `plot_episode.py --map random --n-agents 10 --seed 2`
@@ -63,8 +72,60 @@ instances where nobody blocks anybody the two settings are the same run. When
 robots do block each other, no communication tends to leave them stuck for good.
 
 **Limits.** At N = 10 conflicts are rare, so this shows that communication
-matters, not how much is needed. No oracle bar, so "how far from centralized"
-remains open.
+matters, not how much is needed. LaCAM3 is a near-optimal reference: it plans
+for robots that stay on their goals, while POGEMA removes them, so a ratio
+slightly below 1 is possible. Larger fleets are in the next section.
+
+## E1, extended — Distance from the centralized planner as the fleet grows (`oracle`)
+
+**Question.** How far is decentralized coordination from LaCAM3, and how does
+that gap change with N?
+
+**Setup.** N ∈ {10, 25, 50, 100} on 32 × 32 random, warehouse and maze maps,
+10 seeds each (120 instances). none, range 2 and global on the same instances;
+LaCAM3 with a 10 s limit per instance.
+
+**Metrics.** ISR; SoC ratio $SoC_{\text{ours}} / SoC_{\text{LaCAM3}}$ on instances
+the setting fully solved (number of such instances in brackets).
+
+**Result.** LaCAM3 solved all 120 instances.
+
+| Map | N | ISR none | ISR range 2 | ISR global | ratio range 2 | ratio global |
+|---|---|---|---|---|---|---|
+| random | 10 | 82.0% | 95.0% | 95.0% | 1.018 (9) | 1.018 (9) |
+| random | 25 | 54.8% | 95.2% | 97.2% | 1.059 (7) | 1.095 (8) |
+| random | 50 | 33.0% | 82.0% | 88.4% | 1.116 (3) | 1.181 (5) |
+| random | 100 | 12.8% | 50.6% | 63.7% | – | – |
+| warehouse | 10 | 83.0% | 100% | 100% | 1.016 (10) | 1.019 (10) |
+| warehouse | 25 | 56.8% | 95.6% | 97.2% | 1.056 (7) | 1.094 (8) |
+| warehouse | 50 | 35.0% | 82.0% | 86.8% | 1.135 (3) | 1.222 (2) |
+| warehouse | 100 | 17.8% | 47.8% | 55.0% | – | – |
+| maze | 10 | 73.0% | 100% | 100% | 1.046 (10) | 1.053 (10) |
+| maze | 25 | 35.2% | 70.0% | 77.6% | 1.090 (1) | 1.364 (2) |
+| maze | 50 | 21.2% | 48.4% | 52.8% | – | – |
+| maze | 100 | 9.2% | 23.7% | 29.7% | – | – |
+
+– means no instance was fully solved, so no ratio exists.
+
+- The gap in ISR to LaCAM3 (100%) widens with N for every setting.
+- Communication keeps a large lead over none at every N (random, 50 robots:
+  88.4% global vs 33.0% none).
+- On solved instances the cost ratio grows with N: about 1.02 at 10 robots,
+  1.06–1.10 at 25 and 1.12–1.22 at 50.
+- none's ratio at N = 10 is about 1.00 (0.997 on random). It solves only easy
+  instances, and a value just below 1 is possible because LaCAM3 keeps robots
+  on their goals while POGEMA removes them.
+
+**Interpretation.** With few robots the decentralized planner is close to the
+centralized one, in both success and cost. Crowding is what separates them:
+local yielding resolves fewer conflicts as robots meet more often, and the
+conflicts it does resolve cost more waiting.
+
+**Limits.** Ratios compare each setting on its own solved instances, so global's
+higher ratio partly reflects that it solves harder instances than range 2; it is
+not evidence that global plans worse. Cells with 1–3 solved instances (maze 25,
+the 50-robot rows) are too few to trust. LaCAM3 is a near-optimal reference
+under stay-at-goal semantics, not a proven optimum for POGEMA's rules.
 
 ## E2 — How far must messages carry? (`topology`)
 
@@ -204,13 +265,13 @@ an efficiency comparison.
 - **Runtime.** Global is much slower to *simulate* (N = 128: 26 s vs 3 s per run),
   mostly because the runner copies one message per receiver. This is a cost of
   the simulation, not a measurement of a real network.
-- **Not studied here.** Message loss and delay, agent failure, the oracle comparison,
-  and E5 receipt timing (disabled by its contract in core sweeps).
+- **Not studied here.** Message loss and delay, agent failure, and E5 receipt
+  timing (disabled by its contract in core sweeps).
 
 ## What this does not show
 
 - No guarantee: the planner still deadlocks in no-passing corridors with perfect
   global information.
-- No optimality: without the oracle there is no measure of distance from the best
-  centralized plan.
+- No optimality claim: LaCAM3 is a near-optimal reference under stay-at-goal
+  semantics, not a proven optimum for POGEMA's rules.
 - No generalization beyond this planner, these maps and POGEMA's priority collisions.

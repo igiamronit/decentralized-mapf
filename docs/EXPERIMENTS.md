@@ -55,6 +55,7 @@ difference uses one value per instance.
 | `topology` (E2, E3, E5) | How much range or how many neighbours is enough? Does graph structure matter at equal degree? How does message load relate to success? | none, range r ∈ {1,2,3,5,8,16}, k-NN k ∈ {1,2,3,4,8}, global | N = 50, 32 × 32, 3 maps, 20 seeds |
 | `scaling_congestion` (E4a) | What happens as robots are added to the same space? | N ∈ {8,16,32,64,128} | 32 × 32 map |
 | `scaling_density` (E4b) | What happens at larger scale but similar crowding? | N and map side together | ≈ 0.03 robots per cell |
+| `oracle` (E1, extended) | How far from the centralized reference as the fleet grows? | N ∈ {10, 25, 50, 100}; none, range 2, global, LaCAM3 | 32 × 32, 3 maps, 10 seeds, 10 s oracle limit |
 | `smoke` | Does the pipeline run? | — | 2 seeds; never evidence |
 
 Range sweep and topology comparison use the same runs, so there is one config,
@@ -239,28 +240,51 @@ not a test; read `paired.csv` for comparisons.
 ## 7. Figures
 
 Error bars and bands are 95% bootstrap intervals over instances. Success is in %.
-Each setting has one colour in every figure: none grey, global purple, oracle
-green, range in blues, k-NN in oranges (darker = larger r or k).
+Each setting has one colour in every figure: none grey, global purple, LaCAM3
+a charcoal dashed line, range in teal, k-NN in amber (darker = larger r or k).
 
-| Figure | Question |
-|---|---|
-| `ladder_success` | complete and individual success, global vs none, per map |
-| `ladder_paired` | per-instance ISR difference global − none; counts higher/equal/lower |
-| `ladder_reach` | how far short failed robots stopped |
-| `ladder_cost` | SoC on instances both solved |
-| `ladder_arrivals` | share of robots at goal over time |
-| `topology_range` | ISR and ρ_reach against r, with global and none as bands |
-| `topology_degree` | range vs k-NN at the same measured mean degree |
-| `topology_overhead` | delivered messages per robot per step vs ISR |
-| `topology_heard` | share of conflicts whose blocker was heard |
-| `topology_responses` | what robots did when the blocker was heard / not heard (pooled shares) |
-| `topology_stalls` | stalled robots per instance by cause |
-| `scaling_success` | ISR and CSR against N |
-| `scaling_reach_delay` | ρ_reach and delay of arrived robots against N |
-| `scaling_messages` | message load against N |
+Figures are numbered in reading order inside each experiment's `figures/` folder.
 
-`plot_episode.py` draws one instance under several settings: paths, conflict
-responses (filled = heard), and each robot's distance to goal over time.
+| Experiment | Figure | Question |
+|---|---|---|
+| ladder | `1_success_with_and_without_communication` | complete and individual success, global vs none (+ oracle), per map |
+| ladder | `2_gain_from_communication_per_instance` | ISR(global) − ISR(none) on each instance; counts higher / equal / lower |
+| ladder | `3_how_far_stuck_robots_stopped` | mean ρ_reach: how far short failed robots stopped |
+| ladder | `4_cost_compared_with_oracle` | SoC(ours) / SoC(LaCAM3) per instance, each setting on the instances it solved (without the oracle: `4_cost_on_instances_all_settings_solved`) |
+| ladder | `5_robots_at_goal_over_time` | share of robots at goal over time |
+| oracle | `1_success_ours_vs_oracle` | ISR and CSR against N, with LaCAM3's solved share |
+| oracle | `2_cost_compared_with_oracle` | mean SoC ratio to LaCAM3 against N, on solved instances (counts shown) |
+| topology | `1_success_vs_communication_range` | ISR and ρ_reach against r, with global and none as bands |
+| topology | `2_range_vs_knn_at_equal_degree` | range vs k-NN at the same measured mean degree |
+| topology | `3_messages_vs_success` | delivered messages per robot per step vs ISR |
+| topology | `4_was_the_blocker_heard` | share of conflicts whose blocker was heard |
+| topology | `5_how_robots_respond_to_conflicts` | what robots did when the blocker was heard / not heard (pooled shares) |
+| topology | `6_why_robots_got_stuck` | stalled robots per instance by cause |
+| scaling | `1_success_as_fleet_grows` | ISR and CSR against N |
+| scaling | `2_robustness_and_delay_as_fleet_grows` | ρ_reach and delay of arrived robots against N |
+| scaling | `3_messages_as_fleet_grows` | message load against N |
+
+### Checking runs by eye
+
+Three scripts let you see what the numbers come from:
+
+- `show_maps_and_communication.py` draws the three map types with real starts
+  and goals (`the_three_map_types.png`), and the talk graph on one instance under
+  each setting (`who_can_hear_whom.png`), using the project's topology code.
+- `animate_episode.py` records an episode with **POGEMA's own renderer**
+  (`outputs/animations/*.mp4`; needs `pip install imageio imageio-ffmpeg`). It does not use our plotting
+  code, so it is an independent check of what the simulator did.
+- `plot_episode.py` draws one instance under several settings: paths, conflict
+  responses (filled = heard), and each robot's distance to goal over time.
+
+### Why the maps cannot explain differences between settings
+
+Nothing in the project learns. The planner is A* plus fixed priority rules, and
+every robot is given the static wall map before it starts, because A* needs it.
+That knowledge is identical under every communication setting, so it cannot cause
+a difference between settings; only the delivered messages can. Random and maze
+maps are regenerated for every seed, and the three map types check that a result
+does not depend on one geometry.
 
 ## 8. Assumptions and limits
 

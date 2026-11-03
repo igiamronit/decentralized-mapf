@@ -34,6 +34,7 @@ from .planner import DCMAPFPlanner
 from .runner import run_episode
 
 MAP_TYPES = ("random", "warehouse", "maze")
+KINDS = ("ladder", "topology", "scaling", "oracle")
 CONFIG_KEYS = {"name", "kind", "maps", "n_agents", "seeds", "topologies", "size",
                "max_steps", "window", "obs_radius", "oracle", "oracle_timeout",
                "save_traces", "description"}
@@ -254,6 +255,11 @@ def oracle_row(instance, timeout):
             "oracle_makespan": reference["makespan"], "oracle_runtime_s": runtime}
 
 
+def _oracle_job(job):
+    instance, timeout = job
+    return instance["instance_id"], oracle_row(instance, timeout)
+
+
 def oracle_available():
     """Check the solver on a trivial instance before running a sweep."""
     return oracle_solve([[0, 0]], [(0, 0)], [(0, 1)], timeout=5) is not None
@@ -280,6 +286,8 @@ def load_config(path):
     for key in ("name", "kind", "maps", "n_agents", "seeds", "topologies"):
         if key not in config:
             raise ValueError(f"Config {path} is missing {key!r}")
+    if config["kind"] not in KINDS:
+        raise ValueError(f"Unknown kind {config['kind']!r}; use one of {KINDS}")
     for key in ("n_agents", "seeds"):
         values = config[key]
         if not values or any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in values):
@@ -394,14 +402,18 @@ def run_sweep(config_path, out_dir, workers=1):
           "starts": inst["starts"], "goals": inst["goals"]} for inst, max_steps in instances]),
         encoding="utf-8")
 
-    oracles = {}
-    for instance, _ in instances:
-        if oracle_on:
-            oracles[instance["instance_id"]] = oracle_row(instance, config.get("oracle_timeout", 30))
-        else:
-            oracles[instance["instance_id"]] = {
-                "oracle_status": "unavailable" if oracle_wanted else "disabled",
-                "oracle_SoC": None, "oracle_makespan": None, "oracle_runtime_s": None}
+    executor = ProcessPoolExecutor(max_workers=workers) if workers > 1 else None
+    oracles = {inst["instance_id"]: {"oracle_status": "unavailable" if oracle_wanted else "disabled",
+                                     "oracle_SoC": None, "oracle_makespan": None,
+                                     "oracle_runtime_s": None} for inst, _ in instances}
+    if oracle_on:
+        # LaCAM3 keeps improving until its time limit, so this phase can be long.
+        oracle_jobs = [(inst, config.get("oracle_timeout", 30)) for inst, _ in instances]
+        solved = executor.map(_oracle_job, oracle_jobs) if executor else map(_oracle_job, oracle_jobs)
+        for done, (key, result) in enumerate(solved, start=1):
+            oracles[key] = result
+            print(f"oracle [{done}/{len(oracle_jobs)}] {result['oracle_status']} "
+                  f"in {result['oracle_runtime_s']} s", flush=True)
 
     settings = {"window": config.get("window", 10), "obs_radius": config.get("obs_radius", 3)}
     jobs = [(instance, topology, {**settings, "max_steps": max_steps})
@@ -416,7 +428,6 @@ def run_sweep(config_path, out_dir, workers=1):
     (out_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
     rows = []
-    executor = ProcessPoolExecutor(max_workers=workers) if workers > 1 else None
     results = executor.map(_run_job, jobs) if executor else map(_run_job, jobs)
     try:
         with open(out_dir / "results.jsonl", "w", encoding="utf-8") as lines:
