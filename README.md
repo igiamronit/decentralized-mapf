@@ -10,7 +10,7 @@ The environment verification, shared interfaces, all four core communication mod
 
 The metrics and monitor tests cover trace recording, POGEMA metric capture, first-arrival cost calculations, reachability, liveness, safety, deadlock diagnosis, intention recording, and JSON persistence. Planner episode tests use the existing test recorder and do not depend on the metrics module.
 
-The planner episode tests cover adjacent and more distant packets, horizontal and vertical corridors, waiting for a peer to pass, no-message stalls, and reset. The metrics checks cover analytic robustness traces, message and initial-goal arrivals, terminal intention filtering, native diagnostics, and JSON persistence. The README example and saved-trace reload are also tested.
+The planner episode tests cover adjacent and more distant packets, horizontal and vertical corridors, waiting for a peer to pass, no-message stalls, and reset. The metrics checks cover analytic robustness traces, message and initial-goal arrivals, terminal intention filtering, native diagnostics, and JSON persistence. Integration tests exercise the example workflow and saved-trace reload.
 
 The C6 centralized LaCAM3 oracle adapter, oracle path validation, and oracle metrics are implemented and tested. The oracle runs independently of the decentralized simulation loop and provides a centralized reference for evaluation.
 
@@ -33,25 +33,22 @@ For context, read [the team build guide](docs/TEAM_BUILD_GUIDE.md) for assignmen
 
 ```text
 decentralized_mapf/
-  interfaces.py              Shared message, trace, communication, channel, and planner contracts
-  communication.py           Global, none, range, k-nearest models and shared graph statistics
-channels.py             Perfect channel; inherits the base pass-through behavior
-runner.py               Pluggable POGEMA episode loop and per-recipient routing
-pathfinding.py          Shared deterministic static-map A*
-planner.py              IndependentAStar and DCMAPFPlanner with local yielding
-metrics.py              Trace recorder, POGEMA metric capture, raw bundle export
-monitors.py             Offline reachability, liveness, safety and stall diagnosis
-e5_consensus.py         Optional mutual current-claim receipt tracker
-oracle/
-    __init__.py         Public oracle exports
-    lacam_adapter.py    LaCAM3 executable adapter and MovingAI conversion
-    validation.py      MAPF problem and solution validation
-    metrics.py         Makespan, SoC, and oracle SoC ratio
-__init__.py             Public imports for project modules
+  interfaces.py           Shared message, trace, topology, channel and planner contracts
+  communication.py        Core topologies and directed-graph statistics
+  channels.py             Perfect pass-through channel
+  runner.py               Pluggable POGEMA episode loop and per-recipient routing
+  pathfinding.py          Shared deterministic static-map A*
+  planner.py              IndependentAStar and DCMAPFPlanner with local yielding
+  metrics.py              Trace recorder, native metric capture and raw bundle export
+  monitors.py             Offline reachability, liveness, safety and stall diagnosis
+  e5_consensus.py          Optional mutual current-claim receipt tracker
+  oracle/                 Executable adapter, trajectory validation and oracle costs
+  __init__.py             Public imports
 
 tests/
     test_communication.py       Communication links and directed-graph statistics checks
     test_topologies.py          Range/k-nearest behavior, limits, and deterministic tie-breaking
+    test_review_invariants.py   Exhaustive references, seeded stress checks and replay
     test_runner.py              Real POGEMA integration with test-only planners and channels
     test_planner.py             Pathfinding, broadcasts and local yield decisions
     test_planner_integration.py Planner episodes, retreat, waiting and reset
@@ -66,6 +63,7 @@ docs/
   PROJECT_SPEC.md               Research question, experiment plan, references
   MAS_Project_Proposal.pdf      Project proposal
   ENVIRONMENT_CHECK_RESULTS.md  Verified C1 checklist, evidence, and API findings
+  REPOSITORY_REVIEW.md          Review coverage, fixes, verification and remaining gaps
   figures/                      Preserved proposal and explanatory figures
 
 scripts/
@@ -76,28 +74,43 @@ scripts/
     topology_snapshot.py        Communication-graph illustration on one A* trajectory
 
 outputs/                         Generated artifacts (ignored by Git)
-mapf-env/                        Existing local virtual environment (ignored by Git)
-requirements.txt                 Direct dependencies, including the installed POGEMA revision
+.venv/ or mapf-env/              Optional local virtual environments (ignored by Git)
+requirements.txt                 Pinned direct runtime dependencies and POGEMA revision
+requirements-dev.txt             Runtime dependencies plus the test runner
 AGENTS.md                        Repository instructions for coding assistants
 ```
 
-The topology snapshot overlays different communication graphs on the same trajectory; it does not yet measure communication's effect on movement. The expected-results figure contains illustrative hypotheses, not experimental data.
+Both demo scripts retain their original code for future development. The topology
+snapshot overlays different communication graphs on one independent-A* trajectory;
+it does not measure communication's effect on movement. Its graph includes
+finished robots, and its red markers use an endpoint nonmovement heuristic, not a
+formal deadlock diagnosis. The scripts execute on import and do not explicitly
+close their environments; these demo improvements remain deferred. The expected-results figure contains illustrative hypotheses, not experimental data.
+The original PDF proposal and preserved figures are historical artifacts; their
+claims about deadlock, a complete planner, and behavioral guarantees are subject
+to the current guide's limitations.
 
 ## Setup
 
-The project uses Python 3.13. From the repository root in PowerShell:
+Use Python 3.13. From the repository root in PowerShell:
 
 ```powershell
-# Reuse the existing environment:
-.\mapf-env\Scripts\Activate.ps1
-
-# Or create a new environment:
+# Create a fresh environment:
 py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 ```
 
-Use one of the environment options above. Installing the pinned POGEMA revision requires Git. The requirements record the existing direct dependency versions; they are not a complete lockfile of transitive dependencies.
+On macOS/Linux:
+
+```sh
+python3.13 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+An existing `mapf-env` can be reused if it has the same Python and dependencies;
+it is not included in the repository. Installing the pinned POGEMA revision requires Git. The requirements record the existing direct dependency versions; they are not a complete lockfile of transitive dependencies.
 
 ## Shared interfaces
 
@@ -166,7 +179,9 @@ action = planner.act(0, observation={}, inbox=[], goal=(0, 2))
 
 For an episode, pass the planner to `run_episode` with the chosen communication model, channel and a compatible recorder. Supply `moves=config.MOVES` if the POGEMA action ordering is customized. The runner calls `observe()` before every broadcast; paths advance only after the next observed position confirms a move.
 
-No communication gives independent A* behavior without changing planners. When yielding, a robot can retreat along a corridor to reach an off-axis pocket. It keeps that refuge until its goal route is clear or the peer is no longer heard. Only received positions and claims constrain the escape search.
+No communication gives independent A* behavior without changing planners. When yielding, a robot can retreat along a corridor to reach an off-axis pocket. It keeps that refuge until its goal route is clear or the peer is no longer heard.
+Loss of a current peer claim releases the retreat immediately and replans to the
+goal; remaining current claims still constrain the action. Only received positions and claims constrain the escape search.
 
 This is a simplified A* plus local yield baseline, not a validated reproduction of the full published algorithm or a complete MAPF solver. Narrow bottlenecks and multi-robot cycles may still stall. The centralized oracle is implemented as a separate evaluation reference. The experiment harness and statistical comparisons remain integration dependencies. See the [planner contract](docs/TEAM_BUILD_GUIDE.md#planner) for the exact rule.
 
@@ -256,11 +271,6 @@ reported project costs do not establish optimality for POGEMA's finish semantics
 `oracle_soc_ratio()` computes decentralized SoC divided by oracle SoC. A value of `1.0` means equal SoC; values above `1.0` indicate higher decentralized cost. A zero oracle SoC is rejected because the ratio is undefined.
 
 The oracle is a centralized comparison reference, not evidence that the decentralized planner is optimal or complete. Oracle metrics do not replace the broader experiment recorder, offline monitors, or statistical analysis.
-This is a simplified A* plus local yield baseline, not a validated reproduction
-of the full published algorithm or a complete MAPF solver. Narrow bottlenecks
-and multi-robot cycles may still stall. The centralized oracle, experiment
-harness and statistical comparisons remain integration dependencies.
-See the [planner contract](docs/TEAM_BUILD_GUIDE.md#planner) for the exact rule.
 
 ## Metrics and monitors
 
@@ -306,7 +316,9 @@ cost wrapper: arrivals at steps 1 and 4 must give SoC 5, while the wrapper repor
 8. The wrapper in the example is optional; its raw values remain available in
 `environment_metrics` for comparison.
 
-Save both the summary and raw bundle. Intentions cover decision rows only, with
+Save both the summary and raw bundle. Live and restored trace rows reject
+invalid coordinates, graph values, delivery counts, ages and inbox/count
+inconsistencies; validation does not replace checking against the instance map. Intentions cover decision rows only, with
 no stale entry for the terminal state. Unsolved costs remain `None`, as do
 success metrics and costs if a caller cuts off before POGEMA supplies terminal
 ISR/CSR. `Metrics.from_data(raw_bundle).summary()` recomputes offline after a JSON
@@ -338,11 +350,30 @@ tracker's tests do not replace the required core comparison or E5 sweeps.
 
 ## Validation
 
+To keep testing separate from an existing environment, use the Git-ignored
+`.venv-test` directory. On macOS/Linux, from the repository root:
+
+```sh
+python3.13 -m venv .venv-test
+source .venv-test/bin/activate
+python -m pip install -r requirements-dev.txt
+python -m pytest -q -p no:cacheprovider
+```
+
+On later runs, activate `.venv-test` and run pytest; recreating it is unnecessary.
+On Windows, create it with `py -3.13 -m venv .venv-test` and activate with
+`.\.venv-test\Scripts\Activate.ps1`.
+
+The repo-local environment was also rechecked in two fresh test processes with
+different Python hash seeds and warnings treated as errors; both passed. See
+[the review evidence](docs/REPOSITORY_REVIEW.md#subsequent-environment-recheck)
+for the commands and remaining verification limits.
+
 From the repository root with the Python 3.13 environment activated:
 
 ```powershell
 # Install the test runner once in the activated environment.
-python -m pip install pytest
+python -m pip install -r requirements-dev.txt
 python -m pytest -q -p no:cacheprovider
 ```
 
@@ -354,9 +385,17 @@ The C6 tests cover malformed inputs and paths, coordinate conversion, collision 
 
 Oracle regressions also cover padded waits, valid goal departures/revisits, and
 rejection of invalid movement after a first goal visit. Adapter tests use stub
-solver output to exercise parsing and validation without requiring the executable.
+solver output and a local executable protocol stub to exercise parsing and validation without requiring the executable.
 
-The README example and saved-trace reload are also tested. These checks establish implementation and correctness on the tested fixtures; they are not experimental performance results.
+The README episode example was executed during the repository review; integration
+fixtures exercise its workflow and saved-trace reload. The review also added
+exhaustive small-grid A*/liveness references and seeded pipeline checks at
+10/25/100 agents across all core topologies, including repeatability and JSON
+reload. These are correctness checks, not experimental performance results.
+
+See [the repository review](docs/REPOSITORY_REVIEW.md) for coverage, confirmed
+fixes, commands/results and verification gaps. The actual LaCAM3 solver has not
+been rerun on this host. No build, CI, lint or type-check configuration is shipped.
 
 ## Run the existing scripts
 

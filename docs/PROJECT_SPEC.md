@@ -37,7 +37,7 @@ N agents on a 2D grid. Each agent has its own start cell and its own goal cell (
 | Consensus | Local conflict resolution is framed and measured as a consensus protocol (rounds-to-agreement) |
 | Distributed intelligence | No global controller; every agent acts on partial information |
 | Fault / attack resilience | Packet loss, message delay, disconnection, agent failure |
-| Formal methods / behavioural guarantees | One proved lemma (deadlock-freedom under bounded delay) |
+| Formal methods / behavioural guarantees | Core offline monitors; a deadlock-freedom lemma remains an unproved extension |
 | Distributed optimization | Agents locally negotiate a joint outcome none of them can compute alone |
 
 For the current simplified yield baseline, the consensus measurement uses the
@@ -81,34 +81,35 @@ What actually manifests when coordination fails:
 - **Thrashing** — agents repeatedly step into each other's way, wasting timesteps
 - **Non-arrival** — agents simply do not reach their goal before the step limit
 
-**This must be verified on day one** (see §4.2). The headline metrics are success rate, makespan, and sum-of-costs — not collision count.
+**Verified for the pinned priority-mode fixtures** (see `ENVIRONMENT_CHECK_RESULTS.md`); this is not a proof for every simulator configuration. The headline metrics are success rate, makespan, and sum-of-costs — not collision count.
 
 ---
 
 ## 3. SYSTEM ARCHITECTURE
 
-Five components. The planner is arguably the *least* risky of them, because a published design exists to copy (§7.2).
+The diagram below describes the implemented core boundaries and the planned harness.
+The planner is a simplified baseline, not a validated paper reproduction (§7.2).
 
+```text
+Experiment harness (planned): config × seed, matched instances, persistence, plots
+    -> run_episode(env, comm, channel, planner, metrics, max_steps)
+       reset environment/channel/planner
+       each decision timestep:
+         own positions -> observe all active robots -> compose all broadcasts
+         topology over active positions -> independent addressed transmissions
+         Channel.deliver(messages, t) -> inboxes
+         Metrics.record(current state and deliveries); optional passive E5 capture
+         Planner.act(own observation, own inbox, own goal) -> env.step(actions)
+         copy native metrics from infos
+       record final state with no deliveries/actions
+    -> offline monitors and summary; calling harness persists raw bundle and summary
 ```
-┌─────────────────────────────────────────────────────────┐
-│ ExperimentHarness                                       │
-│  - sweeps configs × seeds, writes results, makes plots  │
-└───────────────┬─────────────────────────────────────────┘
-                │
-┌───────────────▼─────────────────────────────────────────┐
-│ Simulation loop (wraps POGEMA)                          │
-│                                                          │
-│  each timestep:                                          │
-│   1. positions ← env state                               │
-│   2. edges ← CommunicationModel.get_edges(positions)     │
-│   3. msgs ← agents compose messages                      │
-│   4. msgs ← FailureModel.corrupt(msgs, edges)            │
-│   5. deliver surviving msgs to recipients' inboxes       │
-│   6. actions ← Planner.act(obs, inbox) for each agent    │
-│   7. env.step(actions)                                   │
-│   8. MetricsCollector.record(...)                        │
-└──────────────────────────────────────────────────────────┘
-```
+
+`StepRecord(t)` describes the state before action t, so K actions produce K+1 rows.
+The authoritative signatures and callback order are in the guide §3. The earlier
+`FailureModel.corrupt`/`MetricsCollector` names are replaced by `Channel.deliver`
+and `Metrics`; the frozen API takes precedence over the historical architecture
+sketch. No such compatibility aliases are exported.
 
 ### 3.1 `CommunicationModel` 🟢
 
@@ -119,7 +120,7 @@ class CommunicationModel:
     def get_edges(self, positions: list[tuple[int,int]]) -> dict[int, list[int]]:
         """Return adjacency: agent_id -> list of agent_ids it can send to.
         IDs index the supplied positions; the runner restores original IDs.
-        Must be deterministic given positions. Randomness belongs in FailureModel."""
+        Must be deterministic given positions. Randomness belongs in Channel."""
 
     def graph_stats(self, edges) -> dict:
         """mean_degree, n_components, is_connected (undirected view for connectivity)"""
@@ -160,7 +161,7 @@ class Planner:
 |---|---|---|
 | `IndependentAStar` | 🟢 | A* to own goal, ignore everyone. Sanity baseline; expect frequent deadlock. |
 | `DCMAPF` | 🟢 | **Primary planner.** A* independently + local conflict resolution with communicating neighbours. Published design — see §7.2. |
-| `PriorityYield` | 🟢 | Simple tie-break rule used inside DCMAPF: on conflict, lower-priority agent waits or sidesteps. Priority = agent index, or distance-to-goal, or negotiated. |
+| `PriorityYield` | 🟢 | Simple tie-break rule used inside DCMAPF: on conflict, lower-priority agent waits or sidesteps. Implemented priority is lower robot ID first; this is a helper/rule, not a separately exported planner. |
 | `LearnedGating` | 🔴 | Small learned function deciding which neighbours to listen to |
 
 **Planner implementation:** `planner.py` now supplies the two baseline classes through
@@ -170,14 +171,19 @@ detour/refuge handling, not a validated reproduction of the full published
 algorithm. It is incomplete and has no unconditional deadlock-freedom guarantee.
 See the guide's planner handoff for the exact rule and its occupancy counterexample.
 
-### 3.3 `FailureModel` 🟡 (interface 🟢)
+### 3.3 `Channel` 🟡 (interface 🟢)
 
-Corrupts the message stream. **The empty/no-op version is GREEN** — the interface must exist from week 1 so that adding failures later requires no refactor. The actual failure modes are amber.
+Filters or delays the message stream. **The empty/no-op version is GREEN** — the interface must exist from week 1 so that adding failures later requires no refactor. The actual failure modes are amber.
 
 ```python
-class FailureModel:
-    def corrupt(self, messages, edges, t) -> list[Message]:
-        """Drop, delay, or withhold messages. Returns surviving deliverable set."""
+class Channel:
+    def deliver(self, messages, t) -> list[Message]:
+        """Return arriving per-recipient transmissions; preserve recipient/sent_at."""
+        return messages
+
+    def reset(self) -> None:
+        """Clear episode queues/state."""
+        pass
 ```
 
 | Failure mode | Tag | Parameterization |
@@ -190,14 +196,17 @@ class FailureModel:
 | Byzantine / false info | 🔴 | Agent broadcasts incorrect position or intent. **See §9 — likely cut.** |
 
 These must be **independent switches**, combinable but individually testable.
+Only the perfect channel is implemented. Agent failure is a planned action/state
+injector, not a channel effect; see the guide E4. Current planners ignore stale
+claims, so the delayed-message policy must be defined before E7 experiments.
 
-### 3.4 `MetricsCollector` 🟢
+### 3.4 `Metrics` 🟢
 
-See §6 for full metric definitions.
+Implemented in `metrics.py` with offline `monitors.py`; see §6 and the guide for exact definitions.
 
 ### 3.5 `ExperimentHarness` 🟢
 
-Runs the config × seed sweep, persists raw results to disk, aggregates, plots.
+Planned, not implemented: runs the config × seed sweep, persists raw results to disk, aggregates, plots.
 
 **Non-negotiable requirements:**
 - Every run takes an explicit seed. Every result row records its seed.
@@ -213,7 +222,7 @@ Runs the config × seed sweep, persists raw results to disk, aggregates, plots.
 ### 4.1 Installation 🟢
 
 ```bash
-pip install git+https://github.com/Cognitive-AI-Systems/pogema.git
+python -m pip install -r requirements.txt
 ```
 
 ⚠️ **Do NOT use `pip install pogema`.** The PyPI package still contains an older version while the maintainers finish POGEMA 2.0. Many tutorials and forks (including `AIRI-Institute/pogema`) still instruct the PyPI install — ignore them.
@@ -223,7 +232,11 @@ pip install git+https://github.com/Cognitive-AI-Systems/pogema.git
 - `CognitiveAISystems/pogema` — a stub whose README only redirects
 - ✅ `Cognitive-AI-Systems/pogema` — **the real one.** 299 stars, MIT licence, ICLR-2025, active docs at `cognitive-ai-systems.github.io/pogema/`
 
-Minimal working example:
+Use Python 3.13 and the requirements-pinned Git revision, as in README setup.
+The historical package/repository observations above are not a reason to replace
+that pin with a moving upstream checkout.
+
+Minimal environment-only example (not the project runner):
 
 ```python
 from pogema import pogema_v0, GridConfig
@@ -235,18 +248,24 @@ grid_config = GridConfig(
     seed=42,
     max_episode_steps=256,
     obs_radius=3,        # observation FOV — NOT communication
+    observation_type="POMAPF", on_target="finish",
+    collision_system="priority", integration=None,
 )
 env = pogema_v0(grid_config=grid_config)
-obs, info = env.reset()
-while True:
-    obs, reward, terminated, truncated, info = env.step(env.sample_actions())
-    if all(terminated) or all(truncated):
-        break
+try:
+    obs, info = env.reset(seed=grid_config.seed)
+    while True:
+        actions = env.unwrapped.sample_actions()  # one seeded action per agent
+        obs, reward, terminated, truncated, info = env.step(actions)
+        if all(terminated) or all(truncated):
+            break
+finally:
+    env.close()
 ```
 
 ### 4.2 Day-one verification checklist 🟢
 
-**Complete this before writing the proposal or any other code.** Write the answers into a file called `ENVIRONMENT_CHECK_RESULTS.md` and commit it.
+**Complete this before writing the proposal or any other code.** Record the answers in `docs/ENVIRONMENT_CHECK_RESULTS.md`; commits require explicit user authorization.
 
 1. Does a 100-agent episode complete? How many wall-clock seconds?
 2. **What happens when two agents attempt to enter the same cell?** Rejected move, or actual collision? → This determines whether "collision rate" is a real metric.
@@ -265,7 +284,7 @@ If all six are acceptable, the project is de-risked. If any fails, we learn it o
 
 | # | Experiment | Independent variable | Purpose |
 |---|---|---|---|
-| E1 | Sanity ladder | {oracle, global comms, no comms} | Validates the entire pipeline. Bars must come out in that order. |
+| E1 | Sanity ladder | {oracle, global comms, no comms} | Validates the entire pipeline. Investigate the expected oracle/global/none trend; see guide checkpoint 1 for limits of this sanity check. |
 | E2 | Communication range sweep | r ∈ {1, 2, 3, 5, 8, ∞} | **The core result.** Performance vs how far messages carry. |
 | E3 | Topology comparison | {range, k-NN, global} at matched mean degree | Does *structure* matter, or only *quantity* of communication? |
 | E4 | Agent-count scaling | N ∈ {10, 25, 50, 100} × comms settings | Does the communication requirement grow with density? |
@@ -348,7 +367,7 @@ There is **no standard definition**. We must choose one and defend it in the rep
 - Rounds-to-consensus in the conflict-resolution step
 - Wall-clock planning time per agent per step
 - Path-length ratio vs the centralized oracle (how much is decentralization costing us?)
-- Message delivery ratio (sanity check on FailureModel)
+- Message delivery ratio (planned for imperfect channels; current counts are deliveries only)
 
 ---
 
@@ -374,7 +393,9 @@ The oracle answers: **what does perfect global information buy you?** Every dece
 
 ### 7.2 Decentralized baseline 🟢 — DCMAPF
 
-Our primary planner, taken from Maoudj & Christensen (see §8). The design:
+The intended baseline draws on Maoudj & Christensen (see §8). The implemented
+planner follows the guide's simplified rule and has not been validated as a
+reproduction of their complete algorithm or quantitative results. The design:
 
 1. Each robot independently plans its own path with A*, **ignoring all other robots**
 2. Robots resolve potential conflicts **locally, as they occur**, coordinating only with neighbours inside a limited communication radius
@@ -494,17 +515,17 @@ Requires the *whole team* to remain communication-connected throughout. Handles 
 Ordering only. Work distribution is deliberately out of scope for this document.
 
 ### Week 0 — Environment checks 🟢
-Complete §4.2 checklist. Commit `ENVIRONMENT_CHECK_RESULTS.md`. Do not proceed until all six questions are answered.
+Complete §4.2 checklist. Record `docs/ENVIRONMENT_CHECK_RESULTS.md` (commit only when explicitly requested). Do not proceed until all six questions are answered.
 
 ### Weeks 1–2 — Skeleton and control conditions 🟢
 - `CommunicationModel` with `global` and `none` modes only — get the plumbing right before adding physics
-- `FailureModel` interface as a no-op (so adding failures later requires no refactor)
+- `FailureModel` interface (`Channel`) as a no-op (so adding failures later requires no refactor)
 - `IndependentAStar` + `DCMAPF` planners
-- `MetricsCollector` with seeds and matched instances from the start
+- `Metrics` with seeds and matched instances from the start
 - LaCAM3 oracle wired in
 - **Freeze all module interfaces at end of week 1**
 
-**Exit criterion:** E1 produces one plot — 10 agents, three bars: oracle / global comms / no comms, with error bars, in the correct order. This single plot validates the entire pipeline. Everything afterwards is turning dials.
+**Exit criterion:** E1 produces one plot — 10 agents, three bars: oracle / global comms / no comms, with error bars, with the expected trend investigated. See guide checkpoint 1; ordering alone does not validate correctness. Everything afterwards is turning dials.
 
 ### Weeks 3–4 — Topology 🟢
 - Add `range_r` and `knn_k` modes

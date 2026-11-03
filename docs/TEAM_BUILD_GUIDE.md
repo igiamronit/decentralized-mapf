@@ -205,7 +205,9 @@ the environment and channel, calls `planner.reset()`, then for each decision ste
 reads map-relative positions; calls `observe()` for all active robots; composes,
 routes and delivers messages; records the current state and deliveries; asks
 for actions; and steps the environment. It also records the final state with
-empty deliveries, so K steps produce K+1 records. Use a fresh recorder per run.
+empty deliveries, so K steps produce K+1 records. Use a fresh recorder per run. If it exposes `seed`/`goals` metadata, those must
+match the environment's seed and ordered goals; mismatches are rejected before
+recording or actions, including on zero-step runs.
 
 **Integration additions:** existing `act`, `compose`, `deliver`, and `record`
 signatures are unchanged. `Message.recipient` is an optional field, as allowed
@@ -289,8 +291,8 @@ position within each complete W-step window, starting before first arrival. A
 violation is a finite-trace stall signal, not proof of permanent deadlock; a
 necessary detour can violate it. Only unfinished agents with a violation are
 counted by `deadlocked_agents`. `phi_safe` is
-structurally true in POGEMA (gotcha 5), so it is not a result; it is a monitor on
-our own implementation, and if it ever fires we have a bug in the loop.
+structurally true under the tested POGEMA priority collision mode (gotcha 5),
+so it is not a result; it is a monitor on our own implementation, and if it ever fires we have a bug in the loop.
 
 ### Robustness (quantitative semantics)
 
@@ -379,9 +381,10 @@ POGEMA 2.0 and will give you outdated code.
 1. **Install from GitHub, NOT PyPI.** `pip install pogema` gives a stale
    pre-2.0 version. Use:
    ```
-   pip install git+https://github.com/Cognitive-AI-Systems/pogema.git
+   python -m pip install -r requirements.txt
    ```
-   Our version is `2.0.0a`. Check with `pogema.__version__`.
+   The requirements pin the tested Git revision; do not install moving HEAD.
+   Our version is `2.0.0a` (`2.0.0a0` in package metadata). Check with `pogema.__version__`.
 
 2. **`AnimationMonitor` does not exist.** It is `AnimationWrapper`. And
    `AnimationConfig` is not top-level — its kwargs go to `save_animation()`.
@@ -393,7 +396,7 @@ POGEMA 2.0 and will give you outdated code.
    `observation_type='POMAPF'` in `GridConfig`, or you get
    `IndexError: only integers, slices ... are valid indices`.
 
-5. **COLLISIONS ARE IMPOSSIBLE.** Verified: two agents driven into each
+5. **The tested priority collision mode prevents co-occupancy/swaps.** Verified: two agents driven into each
    other in a corridor stop one cell apart and stay frozen forever. Do not
    write a collision counter — it reads zero. **Deadlock is the failure
    mode.** Any LLM that offers you a collision metric is wrong.
@@ -633,7 +636,9 @@ The local rule is deterministic, independent of inbox order:
    later advertised cells cannot be refuge destinations. Equal-length escapes
    use the shared row/column neighbour order. The refuge target persists across
    observations, including rejected moves. The robot waits there until a goal
-   route opens or the peer leaves its inbox; there is no distance-based release.
+   route opens or the peer leaves its inbox; there is no distance-based release. Losing the current peer claim discards
+   the retreat path immediately and recomputes the goal route, with other current
+   claims still checked before executing the action.
    Avoidance never reads other robots' caches.
 4. No inbox means independent A*. Only messages stamped with the current decision
    time affect coordination; a policy for delayed messages remains pending.
@@ -717,6 +722,12 @@ zero for a zero-step run. Means of degree and component count exclude the termin
 row, which has no decision or transmissions. Finished robots remain in position
 rows but are excluded from safety and future liveness requirements. The single
 liveness evaluator drives stall detection; there is no second displacement test.
+
+**Evidence validation:** live records and JSON reload reject noninteger/negative
+coordinates, nonfinite or out-of-fleet graph values, negative counts/ages, future
+ages, invalid inbox IDs and inconsistent inbox/message totals. No map is stored
+in the recorder, so it cannot validate obstacle occupancy or map bounds. Do not
+silently repair corrupted research evidence; regenerate it or investigate.
 
 **C7 handoff:** `summary()` contains scalar/nested results, while `to_data()`
 contains goals, seed, window, semantic version, frozen rows, intention sidecar,
@@ -1056,13 +1067,15 @@ Charitha supplying oracle and harness.
 One plot. Ten agents. Three bars with error bars: **oracle**, **global
 communication**, **no communication** — in that order, descending.
 
-If the bars come out in that order, the entire pipeline is validated and
-everything afterwards is turning dials. If they do not, there is a bug, and you
-find it now rather than in the final week.
+This ordering is the study's expected sanity trend, not a mathematical guarantee
+or sufficient proof of pipeline correctness. Investigate reversals using saved
+instances, feasibility, native oracle objectives and planner traces; do not tune
+or discard runs to force the ordering. The required matched comparison and error
+bars remain acceptance work, and no such result is supplied yet.
 
 **Plot mean `rho_reach` as a second panel, same three bars.** It should order the
-same way. If success rate orders correctly and robustness does not, the bug is in
-the monitor, not the pipeline — which is exactly what you want to learn here
+same way. If success rate orders correctly and robustness does not, investigate
+the monitor and instance outcomes — which is exactly what you want to learn here
 rather than the night before the report. Check `rho_safe >= 0` on the same runs
 while you are at it; it confirms gotcha 5 still holds in our loop.
 

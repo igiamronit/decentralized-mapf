@@ -5,10 +5,10 @@ This completes C1; it does not validate the future planner or communication laye
 
 ## Reproduce
 
-From the repository root in PowerShell:
+From the repository root with the environment described in README activated:
 
 ```powershell
-.\mapf-env\Scripts\python.exe scripts/checks/verify_environment.py
+python scripts/checks/verify_environment.py
 ```
 
 One verifier replaces the previous `smoke_test.py` and `collision_behavior.py`.
@@ -109,3 +109,17 @@ The project's `Metrics` now reports solved-run SoC and makespan from first-arriv
 timestamps in the trace, while retaining raw POGEMA values for comparison.
 `tests/test_episode_integration.py` covers staggered arrivals, initial goals and
 saved-data recomputation. See the team guide's metrics contract for the policy.
+
+## Repository review rerun (2 November 2026)
+
+All six checks were rerun successfully at seeds 1 and 42 on macOS with Python
+3.13.12, the same pinned POGEMA revision, NumPy 2.5.3 and Matplotlib 3.11.2.
+Evidence is local generated output under `outputs/review/environment-before.json`
+and `outputs/review/environment-seed42.json`; these files are ignored by Git.
+The historical Windows timing above is not a measurement on this host.
+Production planner stress/replay checks and their limits are documented in
+`REPOSITORY_REVIEW.md`. Passing these checks does not complete the research sweeps.
+
+The six checks were also rerun successfully at both seeds in the persistent
+repository-local `.venv-test/` environment. Its evidence and dependency provenance
+are under `outputs/review/local-test-env/`; README documents how to reuse it.
