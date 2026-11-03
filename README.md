@@ -25,7 +25,7 @@ current cost calculation against the executable.
 
 These checks establish implementation and correctness on the tested fixtures; they are not experimental performance results.
 
-The experiment harness, oracle/global/none comparison, topology sweeps, matched-degree calibration, and experimental results remain pending. Loss/delay extensions follow core validation.
+The C7 experiment harness is implemented and the core sweeps (E1–E5) have been run with the perfect channel; see [Experiment harness](#experiment-harness-c7). Oracle comparisons still need a working LaCAM3 binary. Loss/delay extensions follow core validation.
 
 For context, read [the team build guide](docs/TEAM_BUILD_GUIDE.md) for assignments and contracts, and [the project specification](docs/PROJECT_SPEC.md) for research requirements. This README covers the current implementation and how to use it.
 
@@ -42,11 +42,17 @@ decentralized_mapf/
   metrics.py              Trace recorder, native metric capture and raw bundle export
   monitors.py             Offline reachability, liveness, safety and stall diagnosis
   e5_consensus.py          Optional mutual current-claim receipt tracker
+  coordination.py         Offline conflict, response, delay and blocked-move analysis
+  harness.py              C7 instances, topology names, runs and config sweeps
+  analysis.py             C7 bootstrap intervals, paired differences, invariant checks
   oracle/                 Executable adapter, trajectory validation and oracle costs
   __init__.py             Public imports
 
 tests/
     test_communication.py       Communication links and directed-graph statistics checks
+    test_coordination.py        Hand-built conflicts, responses, delays and blocked moves
+    test_harness.py             Instances, configs, failures, output files, plots
+    test_analysis.py            Intervals, pairing, missing values, invariants
     test_topologies.py          Range/k-nearest behavior, limits, and deterministic tie-breaking
     test_review_invariants.py   Exhaustive references, seeded stress checks and replay
     test_runner.py              Real POGEMA integration with test-only planners and channels
@@ -64,6 +70,8 @@ docs/
   MAS_Project_Proposal.pdf      Project proposal
   ENVIRONMENT_CHECK_RESULTS.md  Verified C1 checklist, evidence, and API findings
   REPOSITORY_REVIEW.md          Review coverage, fixes, verification and remaining gaps
+  EXPERIMENTS.md                C7 design, running, outputs, metrics, statistics
+  C7_RESULTS.md                 C7 results per research question
   figures/                      Preserved proposal and explanatory figures
 
 scripts/
@@ -72,6 +80,14 @@ scripts/
   demos/
     astar_animation.py          Independent A* demonstration and animation export
     topology_snapshot.py        Communication-graph illustration on one A* trajectory
+  experiments/
+    run_sweep.py                Run one experiment config
+    analyze.py                  Invariants, summary and paired tables
+    plot_results.py             Figures from a finished sweep
+    plot_episode.py             One instance under several topologies
+
+experiments/                     YAML configs: smoke, ladder (E1), topology (E2/E3/E5),
+                                 scaling_congestion and scaling_density (E4)
 
 outputs/                         Generated artifacts (ignored by Git)
 .venv/ or mapf-env/              Optional local virtual environments (ignored by Git)
@@ -183,7 +199,7 @@ No communication gives independent A* behavior without changing planners. When y
 Loss of a current peer claim releases the retreat immediately and replans to the
 goal; remaining current claims still constrain the action. Only received positions and claims constrain the escape search.
 
-This is a simplified A* plus local yield baseline, not a validated reproduction of the full published algorithm or a complete MAPF solver. Narrow bottlenecks and multi-robot cycles may still stall. The centralized oracle is implemented as a separate evaluation reference. The experiment harness and statistical comparisons remain integration dependencies. See the [planner contract](docs/TEAM_BUILD_GUIDE.md#planner) for the exact rule.
+This is a simplified A* plus local yield baseline, not a validated reproduction of the full published algorithm or a complete MAPF solver. Narrow bottlenecks and multi-robot cycles may still stall. The centralized oracle is implemented as a separate evaluation reference. The experiment harness is implemented; statistical comparisons are pending. See the [planner contract](docs/TEAM_BUILD_GUIDE.md#planner) for the exact rule.
 
 ## Centralized LaCAM3 oracle (C6)
 
@@ -324,8 +340,8 @@ success metrics and costs if a caller cuts off before POGEMA supplies terminal
 ISR/CSR. `Metrics.from_data(raw_bundle).summary()` recomputes offline after a JSON
 round trip, including from older raw bundles; regenerate older cost summaries.
 See the [metrics contract](docs/TEAM_BUILD_GUIDE.md#metrics-and-monitors) for
-window semantics, blocker evidence and the cost definition. Oracle integration
-and statistical sweeps remain pending.
+window semantics, blocker evidence and the cost definition. The experiment
+harness below runs these metrics over matched instances.
 
 ## Optional E5 tracking
 
@@ -396,6 +412,26 @@ reload. These are correctness checks, not experimental performance results.
 See [the repository review](docs/REPOSITORY_REVIEW.md) for coverage, confirmed
 fixes, commands/results and verification gaps. The actual LaCAM3 solver has not
 been rerun on this host. No build, CI, lint or type-check configuration is shipped.
+
+## Experiment harness (C7)
+
+The harness runs every communication setting on the same instances (map, starts,
+goals), writes one row per run (failures included), checks invariants, and plots
+means with 95% bootstrap intervals over instances. Code is in
+`decentralized_mapf/harness.py`, `analysis.py` and `coordination.py`; configs in
+`experiments/`; scripts in `scripts/experiments/`.
+
+```sh
+python scripts/experiments/run_sweep.py experiments/ladder.yaml --workers 4
+python scripts/experiments/analyze.py outputs/experiments/ladder
+python scripts/experiments/plot_results.py outputs/experiments/ladder
+```
+
+Design, outputs, metric definitions and statistics are in
+[EXPERIMENTS.md](docs/EXPERIMENTS.md); results and their limits are in
+[C7_RESULTS.md](docs/C7_RESULTS.md). The oracle runs only when
+`LACAM3_BINARY_PATH` points to a working LaCAM3 binary; it was not available
+when the reported sweeps were run.
 
 ## Run the existing scripts
 

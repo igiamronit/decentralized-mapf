@@ -1,0 +1,15 @@
+description: >
+  E2, E3 and E5 on one set of runs. How much range or how many neighbours are
+  needed, does the structure of the talk graph matter at equal mean degree, and
+  how does message load relate to success. N = 50 on 32 x 32 maps, so k up to 8
+  stays well below N - 1 = 49 and r up to 16 stays below the map diameter 62.
+name: topology
+kind: topology
+maps: [random, warehouse, maze]
+n_agents: [50]
+seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+topologies: [none, range_1, range_2, range_3, range_5, range_8, range_16,
+             knn_1, knn_2, knn_3, knn_4, knn_8, global]
+max_steps: 256
+oracle: true
+oracle_timeout: 30

@@ -1,0 +1,14 @@
+description: >
+  E1 sanity ladder. Does any communication help at all, and how far is the
+  decentralized planner from the centralized reference? Global vs none on 10
+  robots (the spec's checkpoint size), oracle when LaCAM3 is available.
+name: ladder
+kind: ladder
+maps: [random, warehouse, maze]
+n_agents: [10]
+seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+topologies: [global, none]
+max_steps: 256
+oracle: true
+oracle_timeout: 30
+save_traces: true

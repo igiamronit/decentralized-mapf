@@ -781,6 +781,16 @@ zero oracle SoC explicitly, as `oracle_soc_ratio` rejects that undefined ratio.
 
 ### C7 — Experiment harness (Charitha)
 
+**Implemented:** `decentralized_mapf/harness.py` provides `make_instance`,
+`build_run`, `run_one` and `run_sweep`; `analysis.py` provides bootstrap
+intervals over instances, paired differences and invariant checks. Configs are
+in `experiments/`, scripts in `scripts/experiments/`. The recorder gets the
+environment's own seed and ordered goals, as the runner requires. Offline
+`coordination.py` adds conflict, response, delay and blocked-move numbers; it
+never feeds back into planning. Every instance has an `instance_id`, checked to
+be identical across topologies. Design and conventions: `docs/EXPERIMENTS.md`;
+results: `docs/C7_RESULTS.md`. The pseudocode below is the original sketch.
+
 The following is orchestration pseudocode, not an implemented harness. C7 owns
 instance/environment construction (`make_instance`/`build_run`) and file helpers.
 `build_run` must supply a seeded finish-mode environment. The native cost

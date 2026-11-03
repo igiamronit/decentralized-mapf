@@ -1,0 +1,13 @@
+description: >
+  E4b. Map side grows with N so robots per cell stays about 0.03 (N / size^2):
+  this measures scale at comparable density. Paths grow with the map, so the
+  step limit grows with it too (8 x size).
+name: scaling_density
+kind: scaling
+maps: [random, warehouse]
+n_agents: [8, 16, 32, 64, 128]
+size: [16, 23, 32, 45, 64]
+max_steps: [128, 184, 256, 360, 512]
+seeds: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+topologies: [none, range_2, knn_2, global]
+oracle: false

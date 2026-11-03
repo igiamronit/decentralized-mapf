@@ -1,0 +1,10 @@
+description: Pipeline check only (seconds). Too small to be evidence.
+name: smoke
+kind: ladder
+maps: [random]
+n_agents: [10]
+seeds: [1, 2]
+topologies: [global, none, range_2, knn_2]
+max_steps: 64
+oracle: true
+save_traces: true
